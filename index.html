@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>P2P 対戦テトリス</title>
-  <!-- PeerJS CDN -->
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <title>P2P 対戦テトリス (SRS / T-Spin / 7-Bag対応)</title>
+  <!-- PeerJS CDN (安定バージョン) -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <style>
     :root {
       --bg-color: #0b0e14;
@@ -170,6 +170,21 @@
     .btn-start:hover:not(:disabled) {
       background: linear-gradient(135deg, #33ff96, #00c965);
       box-shadow: 0 0 15px rgba(0, 240, 120, 0.6);
+    }
+
+    /* デバッグモニターストリップ */
+    .debug-strip {
+      width: 100%;
+      max-width: 980px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      background: rgba(0, 0, 0, 0.3);
+      padding: 4px 12px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      font-family: monospace;
     }
 
     /* 対戦フィールドレイアウト */
@@ -410,13 +425,17 @@
     </div>
   </div>
 
+  <!-- 内部通信モニタリング表示 -->
+  <div class="debug-strip">
+    <span>ICE状態: <span id="iceState" style="color:#fff;">未接続</span></span>
+    <span>シグナリング: <span id="sigState" style="color:#fff;">準備中</span></span>
+  </div>
+
   <!-- 対戦フィールド -->
   <div class="battle-container">
-    <!-- 自分画面 -->
     <div class="player-area me">
       <div class="player-label">YOU</div>
       <div class="game-layout">
-        <!-- HOLD & STATS -->
         <div class="side-col">
           <div class="side-box">
             <div class="side-box-title">HOLD</div>
@@ -432,7 +451,6 @@
           </div>
         </div>
 
-        <!-- メイン盤面 -->
         <div class="board-wrapper">
           <div class="garbage-meter">
             <div id="myGarbageBar" class="garbage-bar" style="height: 0%;"></div>
@@ -441,7 +459,6 @@
           <div id="myToast" class="action-toast">T-SPIN!</div>
         </div>
 
-        <!-- NEXT -->
         <div class="side-col">
           <div class="side-box">
             <div class="side-box-title">NEXT</div>
@@ -450,7 +467,6 @@
         </div>
       </div>
 
-      <!-- オーバーレイ -->
       <div id="myOverlay" class="overlay-message">
         <div id="overlayTitle" class="overlay-title">READY</div>
         <button id="rematchBtn" class="btn-primary" style="display:none; padding:10px 24px; font-size:1rem;">もう一度遊ぶ</button>
@@ -459,7 +475,6 @@
 
     <div class="vs-badge">VS</div>
 
-    <!-- 相手画面 -->
     <div class="player-area enemy">
       <div class="player-label">ENEMY</div>
       <div class="game-layout">
@@ -485,7 +500,6 @@
     </div>
   </div>
 
-  <!-- ガイドフッター -->
   <div class="controls-guide">
     <div class="guide-item"><span>← / →</span><span>A / D</span> 左右移動 (長押し可)</div>
     <div class="guide-item"><span>↓</span><span>S</span> 高速ソフトドロップ (長押し)</div>
@@ -497,46 +511,24 @@
 
   <script>
     /* ==========================================================================
-       1. 定数・SRS (Super Rotation System) 定義
+       1. テトリス定数・SRS定義
        ========================================================================== */
     const COLS = 10;
     const ROWS = 20;
     const BLOCK_SIZE = 24;
 
     const PIECE_DEFS = {
-      I: {
-        shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
-        color: '#00f0f0'
-      },
-      O: {
-        shape: [[1,1],[1,1]],
-        color: '#f0f000'
-      },
-      T: {
-        shape: [[0,1,0],[1,1,1],[0,0,0]],
-        color: '#a000f0'
-      },
-      S: {
-        shape: [[0,1,1],[1,1,0],[0,0,0]],
-        color: '#00f000'
-      },
-      Z: {
-        shape: [[1,1,0],[0,1,1],[0,0,0]],
-        color: '#f00000'
-      },
-      J: {
-        shape: [[1,0,0],[1,1,1],[0,0,0]],
-        color: '#0000f0'
-      },
-      L: {
-        shape: [[0,0,1],[1,1,1],[0,0,0]],
-        color: '#f0a000'
-      }
+      I: { shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], color: '#00f0f0' },
+      O: { shape: [[1,1],[1,1]], color: '#f0f000' },
+      T: { shape: [[0,1,0],[1,1,1],[0,0,0]], color: '#a000f0' },
+      S: { shape: [[0,1,1],[1,1,0],[0,0,0]], color: '#00f000' },
+      Z: { shape: [[1,1,0],[0,1,1],[0,0,0]], color: '#f00000' },
+      J: { shape: [[1,0,0],[1,1,1],[0,0,0]], color: '#0000f0' },
+      L: { shape: [[0,0,1],[1,1,1],[0,0,0]], color: '#f0a000' }
     };
     const PIECE_TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
     const GARBAGE_COLOR = '#636e72';
 
-    // SRS ウォールキックデータ
     const WALLKICK_JLSTZ = {
       '0>1': [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
       '1>0': [[0,0], [1,0], [1,1], [0,-2], [1,-2]],
@@ -581,7 +573,6 @@
     let dropInterval = 850;
     let animationFrameId = null;
 
-    // 入力管理 (DAS / ARR)
     const keyStates = {};
     const DAS = 140;
     const ARR = 32;
@@ -612,11 +603,13 @@
     const myOverlay = document.getElementById('myOverlay');
     const overlayTitle = document.getElementById('overlayTitle');
     const rematchBtn = document.getElementById('rematchBtn');
+    const iceStateEl = document.getElementById('iceState');
+    const sigStateEl = document.getElementById('sigState');
 
     /* ==========================================================================
-       3. ネットワーク管理 (信頼性の高いGoogle & Cloudflare STUNのみ使用)
+       3. ネットワーク管理 (PeerJS 安定化 & デバッグ可視化)
        ========================================================================== */
-    const PEER_PREFIX = 'tb-';
+    const PEER_PREFIX = 't battle ';
     let peer = null;
     let conn = null;
     let myShortId = '';
@@ -650,49 +643,56 @@
       myShortId = generateShortId();
       myIdDisplay.innerText = myShortId;
       updateStatus('waiting', 'シグナリング接続中...');
+      sigStateEl.innerText = '接続中...';
 
-      // 安定している Google & Cloudflare の STUN のみを使用
+      // PeerJS Cloudサーバー + STUN
       const peerConfig = {
-        debug: 1,
+        debug: 2,
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
             { urls: 'stun:stun.cloudflare.com:3478' }
           ]
         }
       };
 
       try {
-        peer = new Peer(PEER_PREFIX + myShortId, peerConfig);
+        peer = new Peer('tb' + myShortId, peerConfig);
       } catch (e) {
         updateStatus('error', 'Peer初期化エラー: ' + e.message);
         return;
       }
 
-      peer.on('open', () => {
+      peer.on('open', (id) => {
         updateStatus('waiting', '待機中 (ID共有可)');
+        sigStateEl.innerText = '待機中 (ID有効)';
         connectBtn.disabled = false;
         checkUrlHash();
       });
 
       peer.on('connection', (incomingConn) => {
+        sigStateEl.innerText = '着信中...';
         setupConnection(incomingConn);
+      });
+
+      peer.on('disconnected', () => {
+        sigStateEl.innerText = '切断 (再接続中)';
+        peer.reconnect();
       });
 
       peer.on('error', (err) => {
         console.error('Peer error:', err);
         clearTimeout(connectTimeoutTimer);
         connectBtn.disabled = false;
+        sigStateEl.innerText = 'エラー: ' + err.type;
 
-        const detail = err.type ? `(${err.type})` : '';
         if (err.type === 'peer-unavailable') {
-          updateStatus('error', `相手が見つかりません。IDを確認してください`);
+          updateStatus('error', '相手が見つかりません。相手が待機中か確認してください');
         } else if (err.type === 'unavailable-id') {
           initPeer();
         } else {
-          updateStatus('error', `エラー: ${err.message || err.type || '通信障害'} ${detail}`);
+          updateStatus('error', 'エラー: ' + (err.type || err.message));
         }
       });
     }
@@ -710,11 +710,28 @@
         clearTimeout(connectTimeoutTimer);
         connectBtn.disabled = false;
         updateStatus('connected', '接続完了！対戦可能です');
+        iceStateEl.innerText = '接続完了 (P2P確立)';
+        sigStateEl.innerText = '通信中';
         startGameBtn.disabled = false;
 
-        const cleanId = conn.peer.replace(PEER_PREFIX, '');
+        const cleanId = conn.peer.replace('tb', '');
         targetIdInput.value = cleanId;
         sendData('ping');
+      };
+
+      // 低レベルRTCPeerConnectionの状態変化を監視（沈黙を防止）
+      const monitorPeerConnection = () => {
+        const pc = conn.peerConnection;
+        if (pc) {
+          pc.oniceconnectionstatechange = () => {
+            iceStateEl.innerText = pc.iceConnectionState;
+            if (pc.iceConnectionState === 'failed') {
+              clearTimeout(connectTimeoutTimer);
+              connectBtn.disabled = false;
+              updateStatus('error', 'NAT越えに失敗しました (ルーターによる通信遮断)');
+            }
+          };
+        }
       };
 
       if (conn.open) {
@@ -723,10 +740,13 @@
         conn.on('open', markConnected);
       }
 
-      // 低レベルDataChannelのイベント監視
-      if (conn.dataChannel) {
-        conn.dataChannel.onopen = markConnected;
-      }
+      // 定期的にpeerConnectionのセットアップを確認
+      const checkPcInterval = setInterval(() => {
+        if (conn && conn.peerConnection) {
+          monitorPeerConnection();
+          clearInterval(checkPcInterval);
+        }
+      }, 100);
 
       conn.on('data', (data) => {
         if (data.type === 'ping') {
@@ -745,7 +765,8 @@
         clearTimeout(connectTimeoutTimer);
         connectBtn.disabled = false;
         isConnectionEstablished = false;
-        updateStatus('waiting', '接続が切断されました');
+        updateStatus('waiting', '切断されました');
+        iceStateEl.innerText = '切断';
         startGameBtn.disabled = true;
         isPlaying = false;
       });
@@ -754,8 +775,7 @@
         console.error('Conn error:', err);
         clearTimeout(connectTimeoutTimer);
         connectBtn.disabled = false;
-        const msg = err && (err.message || err.type) ? ` (${err.message || err.type})` : '';
-        updateStatus('error', '通信障害が発生しました' + msg);
+        updateStatus('error', '通信障害: ' + (err.type || err.message));
       });
     }
 
@@ -764,30 +784,30 @@
         alert('シグナリングサーバーと接続準備中です。少々お待ちください。');
         return;
       }
-      let cleanId = remoteShortId.trim().toUpperCase().replace(PEER_PREFIX.toUpperCase(), '');
+      let cleanId = remoteShortId.trim().toUpperCase().replace('TB', '');
       if (!cleanId || cleanId.length < 4) {
-        alert('相手のID（5桁英数字）を正しく入力してください');
+        alert('相手のIDを正しく入力してください');
         return;
       }
 
-      const fullPeerId = PEER_PREFIX + cleanId;
+      const fullPeerId = 'tb' + cleanId;
       if (fullPeerId === peer.id) {
-        alert('自分のIDには接続できません。別のウィンドウまたは別端末で開いてください。');
+        alert('自分自身には接続できません');
         return;
       }
 
-      updateStatus('waiting', '接続試行中...');
+      updateStatus('waiting', '相手を検索中...');
+      iceStateEl.innerText = '経路探索中...';
       connectBtn.disabled = true;
 
       clearTimeout(connectTimeoutTimer);
       connectTimeoutTimer = setTimeout(() => {
         if (!isConnectionEstablished) {
-          updateStatus('error', '接続タイムアウト（ID確認または再試行してください）');
+          updateStatus('error', 'タイムアウト: 相手の待機状態を確認してください');
           connectBtn.disabled = false;
         }
       }, 15000);
 
-      // オプションなしで標準接続（PeerJS 1.5系の互換性不具合を防止）
       const outgoingConn = peer.connect(fullPeerId);
       setupConnection(outgoingConn);
     }
@@ -842,7 +862,7 @@
     }
 
     /* ==========================================================================
-       4. 7種1巡バッグ & 基本システム
+       4. 7-Bag & テトリス基本システム
        ========================================================================== */
     function createEmptyGrid() {
       return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
@@ -1056,7 +1076,7 @@
     }
 
     /* ==========================================================================
-       6. ライン消去・攻撃力（B2B / T-Spin）
+       6. ライン消去 & B2B
        ========================================================================== */
     function clearLines(isTSpin) {
       let lines = 0;
