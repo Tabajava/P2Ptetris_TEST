@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>P2P 対戦テトリス</title>
+  <!-- PeerJS CDN -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    :root {
+      --bg-color: #0b0e14;
+      --card-bg: #161b26;
+      --border-color: #232b3e;
+      --accent-cyan: #00f0f0;
+      --accent-magenta: #f00078;
+      --accent-green: #00f078;
+      --accent-yellow: #f0f000;
+      --text-color: #e6edf3;
+      --text-muted: #8b949e;
+      --garbage-color: #636e72;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    /* 接続管理バー */
+    .top-panel {
+      width: 100%;
+      max-width: 960px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 14px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      margin-bottom: 16px;
+    }
+
+    .title-area h1 {
+      font-size: 1.25rem;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #777;
+    }
+    .status-badge.connected .status-dot { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+    .status-badge.waiting .status-dot { background: var(--accent-yellow); box-shadow: 0 0 8px var(--accent-yellow); }
+    .status-badge.error .status-dot { background: var(--accent-magenta); box-shadow: 0 0 8px var(--accent-magenta); }
+
+    .connection-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .id-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      font-family: monospace;
+      font-size: 0.95rem;
+    }
+
+    .id-val {
+      font-weight: bold;
+      color: var(--accent-cyan);
+      letter-spacing: 1px;
+    }
+
+    input[type="text"] {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: #fff;
+      padding: 7px 12px;
+      font-size: 0.9rem;
+      font-family: monospace;
+      text-transform: uppercase;
+      outline: none;
+      width: 130px;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    button {
+      background: #232b3e;
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 7px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+    button:hover:not(:disabled) {
+      background: #313d57;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #0099ff, #0055ff);
+      border: none;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, #26a9ff, #1a6dff);
+      box-shadow: 0 0 12px rgba(0, 150, 255, 0.5);
+    }
+    .btn-start {
+      background: linear-gradient(135deg, #00f078, #00a854);
+      color: #000;
+      border: none;
+      font-size: 0.95rem;
+      padding: 7px 18px;
+    }
+    .btn-start:hover:not(:disabled) {
+      background: linear-gradient(135deg, #33ff96, #00c965);
+      box-shadow: 0 0 15px rgba(0, 240, 120, 0.6);
+    }
+
+    /* 対戦フィールドレイアウト */
+    .battle-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 30px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .player-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: var(--card-bg);
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    .player-area.me {
+      box-shadow: 0 0 25px rgba(0, 240, 240, 0.15);
+      border-color: rgba(0, 240, 240, 0.4);
+    }
+
+    .player-area.enemy {
+      box-shadow: 0 0 25px rgba(240, 0, 120, 0.15);
+      border-color: rgba(240, 0, 120, 0.4);
+    }
+
+    .player-label {
+      font-size: 1rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+    .player-area.me .player-label { color: var(--accent-cyan); }
+    .player-area.enemy .player-label { color: var(--accent-magenta); }
+
+    .game-layout {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .side-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 72px;
+    }
+
+    .side-box {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 6px;
+      text-align: center;
+    }
+    .side-box-title {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-weight: bold;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .side-box canvas {
+      display: block;
+      margin: 0 auto;
+    }
+
+    .stats-box {
+      font-size: 0.75rem;
+      line-height: 1.4;
+      padding: 8px 4px;
+    }
+    .stats-val {
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #fff;
+      font-family: monospace;
+    }
+
+    /* 盤面 & お邪魔メーター */
+    .board-wrapper {
+      position: relative;
+      display: flex;
+      gap: 6px;
+    }
+
+    .garbage-meter {
+      width: 8px;
+      height: 480px;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column-reverse;
+      overflow: hidden;
+    }
+    .garbage-bar {
+      width: 100%;
+      background: linear-gradient(to top, #ff3366, #ff9900);
+      transition: height 0.15s ease-out;
+      box-shadow: 0 0 8px rgba(255, 51, 102, 0.8);
+    }
+
+    canvas.board-canvas {
+      display: block;
+      background: rgba(0, 0, 0, 0.85);
+      border: 2px solid var(--border-color);
+      border-radius: 6px;
+    }
+
+    .vs-badge {
+      font-size: 2.2rem;
+      font-weight: 900;
+      font-style: italic;
+      color: #3b455b;
+      letter-spacing: 2px;
+      text-shadow: 0 0 15px rgba(255, 255, 255, 0.05);
+    }
+
+    /* モーダル・オーバーレイ */
+    .overlay-message {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(11, 14, 20, 0.85);
+      backdrop-filter: blur(4px);
+      border-radius: 10px;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      gap: 16px;
+    }
+    .overlay-message.active {
+      display: flex;
+    }
+
+    .overlay-title {
+      font-size: 2.4rem;
+      font-weight: 900;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+    .overlay-title.win {
+      color: var(--accent-green);
+      text-shadow: 0 0 20px var(--accent-green);
+    }
+    .overlay-title.lose {
+      color: var(--accent-magenta);
+      text-shadow: 0 0 20px var(--accent-magenta);
+    }
+    .overlay-title.countdown {
+      font-size: 5rem;
+      color: var(--accent-yellow);
+      text-shadow: 0 0 25px var(--accent-yellow);
+    }
+
+    /* 操作ガイドフッター */
+    .controls-guide {
+      width: 100%;
+      max-width: 960px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 24px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .guide-item span {
+      color: #fff;
+      font-weight: bold;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-right: 4px;
+    }
+
+    @media (max-width: 800px) {
+      .vs-badge { display: none; }
+      .battle-container { gap: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 上部接続UI -->
+  <div class="top-panel">
+    <div class="title-area">
+      <h1>TETRIS BATTLE P2P</h1>
+      <div id="statusBadge" class="status-badge waiting">
+        <span class="status-dot"></span>
+        <span id="statusText">初期化中...</span>
+      </div>
+    </div>
+
+    <div class="connection-controls">
+      <!-- 自分のルームID -->
+      <div class="id-box">
+        <span>MY ID:</span>
+        <span id="myIdDisplay" class="id-val">------</span>
+        <button id="copyIdBtn" title="IDをコピー">コピー</button>
+        <button id="copyUrlBtn" title="招待URLをコピー">招待URL</button>
+      </div>
+
+      <!-- 相手への接続フォーム -->
+      <div style="display:flex; gap:6px;">
+        <input type="text" id="targetIdInput" placeholder="相手のID" maxlength="6">
+        <button id="connectBtn" class="btn-primary">接続</button>
+      </div>
+
+      <!-- ゲーム開始ボタン -->
+      <button id="startGameBtn" class="btn-start" disabled>ゲーム開始</button>
+    </div>
+  </div>
+
+  <!-- 対戦メインフィールド -->
+  <div class="battle-container">
+    <!-- 自分画面 -->
+    <div class="player-area me">
+      <div class="player-label">YOU</div>
+      <div class="game-layout">
+        <!-- HOLD & STATS -->
+        <div class="side-col">
+          <div class="side-box">
+            <div class="side-box-title">HOLD</div>
+            <canvas id="holdCanvas" width="60" height="60"></canvas>
+          </div>
+          <div class="side-box stats-box">
+            <div class="side-box-title">LINES</div>
+            <div id="linesDisplay" class="stats-val">0</div>
+          </div>
+          <div class="side-box stats-box">
+            <div class="side-box-title">SCORE</div>
+            <div id="scoreDisplay" class="stats-val">0</div>
+          </div>
+        </div>
+
+        <!-- メイン盤面 -->
+        <div class="board-wrapper">
+          <div class="garbage-meter">
+            <div id="myGarbageBar" class="garbage-bar" style="height: 0%;"></div>
+          </div>
+          <canvas id="myCanvas" class="board-canvas" width="240" height="480"></canvas>
+        </div>
+
+        <!-- NEXT -->
+        <div class="side-col">
+          <div class="side-box">
+            <div class="side-box-title">NEXT</div>
+            <canvas id="nextCanvas" width="60" height="60"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- オーバーレイ表示（勝敗・カウントダウン） -->
+      <div id="myOverlay" class="overlay-message">
+        <div id="overlayTitle" class="overlay-title">READY</div>
+        <button id="rematchBtn" class="btn-primary" style="display:none; padding:10px 24px; font-size:1rem;">もう一度遊ぶ</button>
+      </div>
+    </div>
+
+    <div class="vs-badge">VS</div>
+
+    <!-- 相手画面（プレビュー同期） -->
+    <div class="player-area enemy">
+      <div class="player-label">ENEMY</div>
+      <div class="game-layout">
+        <!-- メイン盤面 -->
+        <div class="board-wrapper">
+          <div class="garbage-meter">
+            <div id="enemyGarbageBar" class="garbage-bar" style="height: 0%;"></div>
+          </div>
+          <canvas id="enemyCanvas" class="board-canvas" width="240" height="480"></canvas>
+        </div>
+
+        <!-- 相手STATS -->
+        <div class="side-col">
+          <div class="side-box stats-box">
+            <div class="side-box-title">LINES</div>
+            <div id="enemyLinesDisplay" class="stats-val">0</div>
+          </div>
+          <div class="side-box stats-box">
+            <div class="side-box-title">SCORE</div>
+            <div id="enemyScoreDisplay" class="stats-val">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 操作方法ガイド -->
+  <div class="controls-guide">
+    <div class="guide-item"><span>← / →</span><span>A / D</span> 移動</div>
+    <div class="guide-item"><span>↑</span><span>W / J</span> 回転</div>
+    <div class="guide-item"><span>↓</span><span>S</span> ソフトドロップ</div>
+    <div class="guide-item"><span>Space</span> ハードドロップ</div>
+    <div class="guide-item"><span>C</span><span>Shift</span> ホールド</div>
+  </div>
+
+  <script>
+    /* ==========================================================================
+       1. テトリス定数・データ定義
+       ========================================================================== */
+    const COLS = 10;
+    const ROWS = 20;
+    const BLOCK_SIZE = 24; // 24px * 10 = 240px, 24px * 20 = 480px
+
+    const TETROMINOES = {
+      I: { shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], color: '#00f0f0' },
+      O: { shape: [[1,1],[1,1]], color: '#f0f000' },
+      T: { shape: [[0,1,0],[1,1,1],[0,0,0]], color: '#a000f0' },
+      S: { shape: [[0,1,1],[1,1,0],[0,0,0]], color: '#00f000' },
+      Z: { shape: [[1,1,0],[0,1,1],[0,0,0]], color: '#f00000' },
+      J: { shape: [[1,0,0],[1,1,1],[0,0,0]], color: '#0000f0' },
+      L: { shape: [[0,0,1],[1,1,1],[0,0,0]], color: '#f0a000' }
+    };
+    const PIECE_TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
+    const GARBAGE_COLOR = '#636e72';
+
+    /* ==========================================================================
+       2. ゲーム状態管理
+       ========================================================================== */
+    let myGrid = createEmptyGrid();
+    let currentPiece = null;
+    let holdPieceType = null;
+    let canHold = true;
+    let pieceBag = [];
+    let nextPieceType = null;
+
+    let score = 0;
+    let linesCleared = 0;
+    let pendingGarbage = 0; // 保留中のお邪魔ブロック行数
+    let isGameOver = false;
+    let isPlaying = false;
+
+    let lastDropTime = 0;
+    let dropInterval = 800; // 落下速度 (ms)
+    let animationFrameId = null;
+
+    // Canvas要素
+    const myCanvas = document.getElementById('myCanvas');
+    const myCtx = myCanvas.getContext('2d');
+    const enemyCanvas = document.getElementById('enemyCanvas');
+    const enemyCtx = enemyCanvas.getContext('2d');
+    const holdCanvas = document.getElementById('holdCanvas');
+    const holdCtx = holdCanvas.getContext('2d');
+    const nextCanvas = document.getElementById('nextCanvas');
+    const nextCtx = nextCanvas.getContext('2d');
+
+    const linesDisplay = document.getElementById('linesDisplay');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const enemyLinesDisplay = document.getElementById('enemyLinesDisplay');
+    const enemyScoreDisplay = document.getElementById('enemyScoreDisplay');
+    const myGarbageBar = document.getElementById('myGarbageBar');
+    const enemyGarbageBar = document.getElementById('enemyGarbageBar');
+
+    const myOverlay = document.getElementById('myOverlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const rematchBtn = document.getElementById('rematchBtn');
+
+    /* ==========================================================================
+       3. ネットワーク管理 (PeerJS)
+       ========================================================================== */
+    const PEER_PREFIX = 'tetris-p2p-v1-';
+    let peer = null;
+    let conn = null;
+    let myShortId = '';
+
+    const statusBadge = document.getElementById('statusBadge');
+    const statusText = document.getElementById('statusText');
+    const myIdDisplay = document.getElementById('myIdDisplay');
+    const targetIdInput = document.getElementById('targetIdInput');
+    const connectBtn = document.getElementById('connectBtn');
+    const startGameBtn = document.getElementById('startGameBtn');
+    const copyIdBtn = document.getElementById('copyIdBtn');
+    const copyUrlBtn = document.getElementById('copyUrlBtn');
+
+    function updateStatus(state, msg) {
+      statusBadge.className = 'status-badge ' + state;
+      statusText.innerText = msg;
+    }
+
+    // ランダムな英数字6桁ID生成
+    function generateShortId() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let res = '';
+      for (let i = 0; i < 6; i++) {
+        res += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return res;
+    }
+
+    function initPeer() {
+      myShortId = generateShortId();
+      myIdDisplay.innerText = myShortId;
+      updateStatus('waiting', 'サーバー接続中...');
+
+      peer = new Peer(PEER_PREFIX + myShortId, {
+        debug: 1
+      });
+
+      peer.on('open', (id) => {
+        updateStatus('waiting', '待機中 (ID共有可)');
+        checkUrlHash();
+      });
+
+      peer.on('connection', (c) => {
+        setupConnection(c);
+      });
+
+      peer.on('error', (err) => {
+        console.error('Peer error:', err);
+        if (err.type === 'unavailable-id') {
+          // ID重複時は再試行
+          initPeer();
+        } else {
+          updateStatus('error', '通信エラー: ' + err.type);
+        }
+      });
+    }
+
+    function setupConnection(connection) {
+      if (conn && conn.open) conn.close();
+      conn = connection;
+
+      conn.on('open', () => {
+        updateStatus('connected', '接続完了！');
+        startGameBtn.disabled = false;
+        // 相手側にもID入力欄を反映
+        const enemyId = conn.peer.replace(PEER_PREFIX, '');
+        targetIdInput.value = enemyId;
+      });
+
+      conn.on('data', (data) => {
+        handlePeerData(data);
+      });
+
+      conn.on('close', () => {
+        updateStatus('waiting', '接続が切断されました');
+        startGameBtn.disabled = true;
+        isPlaying = false;
+      });
+    }
+
+    function connectToPeer(remoteShortId) {
+      if (!remoteShortId || remoteShortId.length < 4) {
+        alert('正しいルームIDを入力してください');
+        return;
+      }
+      updateStatus('waiting', '相手に接続中...');
+      const fullPeerId = PEER_PREFIX + remoteShortId.toUpperCase();
+      const c = peer.connect(fullPeerId, { reliable: true });
+      setupConnection(c);
+    }
+
+    function sendData(type, payload = {}) {
+      if (conn && conn.open) {
+        conn.send({ type, ...payload });
+      }
+    }
+
+    function checkUrlHash() {
+      const hash = window.location.hash.replace('#', '').trim().toUpperCase();
+      if (hash && hash !== myShortId) {
+        targetIdInput.value = hash;
+        connectToPeer(hash);
+      }
+    }
+
+    // P2Pメッセージハンドラ
+    function handlePeerData(data) {
+      switch (data.type) {
+        case 'start_countdown':
+          startCountdown();
+          break;
+
+        case 'board_sync':
+          // 相手盤面の描画
+          renderEnemyBoard(data.grid, data.piece, data.ghostY);
+          enemyLinesDisplay.innerText = data.lines;
+          enemyScoreDisplay.innerText = data.score;
+          enemyGarbageBar.style.height = `${Math.min(100, (data.pendingGarbage / 20) * 100)}%`;
+          break;
+
+        case 'garbage':
+          // お邪魔ブロックを受け取る
+          pendingGarbage += data.lines;
+          updateGarbageMeter();
+          break;
+
+        case 'gameover':
+          // 相手がゲームオーバー -> 自分の勝利
+          triggerGameOver(true);
+          break;
+
+        case 'rematch':
+          startCountdown();
+          break;
+      }
+    }
+
+    /* ==========================================================================
+       4. テトリス基本ロジック
+       ========================================================================== */
+    function createEmptyGrid() {
+      return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    }
+
+    // 7種1巡バッグ方式
+    function getNextPieceType() {
+      if (pieceBag.length === 0) {
+        pieceBag = [...PIECE_TYPES].sort(() => Math.random() - 0.5);
+      }
+      return pieceBag.pop();
+    }
+
+    function spawnPiece() {
+      if (!nextPieceType) {
+        nextPieceType = getNextPieceType();
+      }
+      const type = nextPieceType;
+      nextPieceType = getNextPieceType();
+      drawPreview(nextCtx, nextPieceType);
+
+      const proto = TETROMINOES[type];
+      currentPiece = {
+        type: type,
+        shape: proto.shape.map(row => [...row]),
+        color: proto.color,
+        x: Math.floor((COLS - proto.shape[0].length) / 2),
+        y: 0
+      };
+
+      canHold = true;
+
+      // スポーン時にすでに衝突している場合はゲームオーバー
+      if (checkCollision(currentPiece.shape, currentPiece.x, currentPiece.y, myGrid)) {
+        triggerGameOver(false);
+      }
+    }
+
+    function checkCollision(shape, px, py, grid) {
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            const newX = px + c;
+            const newY = py + r;
+            if (newX < 0 || newX >= COLS || newY >= ROWS) {
+              return true;
+            }
+            if (newY >= 0 && grid[newY][newX]) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function rotateMatrix(matrix) {
+      const rows = matrix.length;
+      const cols = matrix[0].length;
+      const rotated = Array.from({ length: cols }, () => Array(rows).fill(0));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          rotated[c][rows - 1 - r] = matrix[r][c];
+        }
+      }
+      return rotated;
+    }
+
+    function rotatePiece() {
+      if (!currentPiece) return;
+      const originalShape = currentPiece.shape;
+      const rotated = rotateMatrix(originalShape);
+
+      // 壁キック（SRSの簡易版: 通常位置 -> 左 -> 右 -> 上 -> 左右2マス）
+      const kicks = [0, -1, 1, -2, 2];
+      for (const offset of kicks) {
+        if (!checkCollision(rotated, currentPiece.x + offset, currentPiece.y, myGrid)) {
+          currentPiece.shape = rotated;
+          currentPiece.x += offset;
+          sendBoardSync();
+          render();
+          return;
+        }
+      }
+    }
+
+    function movePiece(dx, dy) {
+      if (!currentPiece || !isPlaying) return false;
+      if (!checkCollision(currentPiece.shape, currentPiece.x + dx, currentPiece.y + dy, myGrid)) {
+        currentPiece.x += dx;
+        currentPiece.y += dy;
+        sendBoardSync();
+        render();
+        return true;
+      }
+      return false;
+    }
+
+    function hardDrop() {
+      if (!currentPiece || !isPlaying) return;
+      while (movePiece(0, 1)) {
+        score += 2;
+      }
+      lockPiece();
+    }
+
+    function holdPiece() {
+      if (!currentPiece || !canHold || !isPlaying) return;
+
+      const currentType = currentPiece.type;
+      if (!holdPieceType) {
+        holdPieceType = currentType;
+        spawnPiece();
+      } else {
+        const swapType = holdPieceType;
+        holdPieceType = currentType;
+        const proto = TETROMINOES[swapType];
+        currentPiece = {
+          type: swapType,
+          shape: proto.shape.map(row => [...row]),
+          color: proto.color,
+          x: Math.floor((COLS - proto.shape[0].length) / 2),
+          y: 0
+        };
+      }
+      canHold = false;
+      drawPreview(holdCtx, holdPieceType);
+      sendBoardSync();
+      render();
+    }
+
+    function getGhostY() {
+      if (!currentPiece) return 0;
+      let gy = currentPiece.y;
+      while (!checkCollision(currentPiece.shape, currentPiece.x, gy + 1, myGrid)) {
+        gy++;
+      }
+      return gy;
+    }
+
+    function lockPiece() {
+      // 盤面に固定
+      for (let r = 0; r < currentPiece.shape.length; r++) {
+        for (let c = 0; c < currentPiece.shape[r].length; c++) {
+          if (currentPiece.shape[r][c]) {
+            const gy = currentPiece.y + r;
+            const gx = currentPiece.x + c;
+            if (gy >= 0 && gy < ROWS && gx >= 0 && gx < COLS) {
+              myGrid[gy][gx] = currentPiece.color;
+            }
+          }
+        }
+      }
+
+      currentPiece = null;
+      clearLines();
+      applyPendingGarbage();
+      spawnPiece();
+      sendBoardSync();
+      render();
+    }
+
+    function clearLines() {
+      let lines = 0;
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (myGrid[r].every(cell => cell !== 0)) {
+          myGrid.splice(r, 1);
+          myGrid.unshift(Array(COLS).fill(0));
+          lines++;
+          r++; // 落ちてきた同一行を再検査
+        }
+      }
+
+      if (lines > 0) {
+        linesCleared += lines;
+        const points = [0, 100, 300, 500, 800];
+        score += points[lines] || 1000;
+        linesDisplay.innerText = linesCleared;
+        scoreDisplay.innerText = score;
+
+        // お邪魔ブロック送信判定
+        // 2ライン: 1行, 3ライン: 2行, 4ライン: 4行
+        let sendGarbage = 0;
+        if (lines === 2) sendGarbage = 1;
+        else if (lines === 3) sendGarbage = 2;
+        else if (lines === 4) sendGarbage = 4;
+
+        if (sendGarbage > 0) {
+          // 自分が受け取っているお邪魔と相殺
+          if (pendingGarbage > 0) {
+            const offset = Math.min(pendingGarbage, sendGarbage);
+            pendingGarbage -= offset;
+            sendGarbage -= offset;
+            updateGarbageMeter();
+          }
+          if (sendGarbage > 0) {
+            sendData('garbage', { lines: sendGarbage });
+          }
+        }
+      }
+    }
+
+    // お邪魔ブロックを盤面下部からせり上げ
+    function applyPendingGarbage() {
+      if (pendingGarbage <= 0) return;
+
+      const linesToAdd = pendingGarbage;
+      pendingGarbage = 0;
+      updateGarbageMeter();
+
+      for (let i = 0; i < linesToAdd; i++) {
+        // 最上行にブロックがある場合は溢れてゲームオーバー
+        if (myGrid[0].some(cell => cell !== 0)) {
+          triggerGameOver(false);
+          return;
+        }
+        myGrid.shift();
+        const hole = Math.floor(Math.random() * COLS);
+        const garbageRow = Array(COLS).fill(GARBAGE_COLOR);
+        garbageRow[hole] = 0;
+        myGrid.push(garbageRow);
+      }
+    }
+
+    function updateGarbageMeter() {
+      const percent = Math.min(100, (pendingGarbage / 20) * 100);
+      myGarbageBar.style.height = `${percent}%`;
+    }
+
+    /* ==========================================================================
+       5. 描画システム
+       ========================================================================== */
+    function drawBlock(ctx, x, y, color, isGhost = false) {
+      const px = x * BLOCK_SIZE;
+      const py = y * BLOCK_SIZE;
+
+      if (isGhost) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(px + 1.5, py + 1.5, BLOCK_SIZE - 3, BLOCK_SIZE - 3);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.fillRect(px + 2, py + 2, BLOCK_SIZE - 4, BLOCK_SIZE - 4);
+        return;
+      }
+
+      // ブロック本体
+      ctx.fillStyle = color;
+      ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
+
+      // 上・左のハイライト
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + BLOCK_SIZE, py);
+      ctx.lineTo(px + BLOCK_SIZE - 3, py + 3);
+      ctx.lineTo(px + 3, py + 3);
+      ctx.lineTo(px + 3, py + BLOCK_SIZE - 3);
+      ctx.lineTo(px, py + BLOCK_SIZE);
+      ctx.closePath();
+      ctx.fill();
+
+      // 下・右のシャドウ
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.beginPath();
+      ctx.moveTo(px + BLOCK_SIZE, py);
+      ctx.lineTo(px + BLOCK_SIZE, py + BLOCK_SIZE);
+      ctx.lineTo(px, py + BLOCK_SIZE);
+      ctx.lineTo(px + 3, py + BLOCK_SIZE - 3);
+      ctx.lineTo(px + BLOCK_SIZE - 3, py + BLOCK_SIZE - 3);
+      ctx.lineTo(px + BLOCK_SIZE - 3, py + 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function renderGrid(ctx, grid) {
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+      // 背景グリッド線
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+      ctx.lineWidth = 1;
+      for (let r = 0; r <= ROWS; r++) {
+        ctx.beginPath();
+        ctx.moveTo(0, r * BLOCK_SIZE);
+        ctx.lineTo(COLS * BLOCK_SIZE, r * BLOCK_SIZE);
+        ctx.stroke();
+      }
+      for (let c = 0; c <= COLS; c++) {
+        ctx.beginPath();
+        ctx.moveTo(c * BLOCK_SIZE, 0);
+        ctx.lineTo(c * BLOCK_SIZE, ROWS * BLOCK_SIZE);
+        ctx.stroke();
+      }
+
+      // 配置済みブロック
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (grid[r][c]) {
+            drawBlock(ctx, c, r, grid[r][c]);
+          }
+        }
+      }
+    }
+
+    function render() {
+      renderGrid(myCtx, myGrid);
+
+      if (currentPiece) {
+        // ゴーストブロック描画
+        const ghostY = getGhostY();
+        for (let r = 0; r < currentPiece.shape.length; r++) {
+          for (let c = 0; c < currentPiece.shape[r].length; c++) {
+            if (currentPiece.shape[r][c]) {
+              drawBlock(myCtx, currentPiece.x + c, ghostY + r, currentPiece.color, true);
+            }
+          }
+        }
+
+        // 操作中ブロック描画
+        for (let r = 0; r < currentPiece.shape.length; r++) {
+          for (let c = 0; c < currentPiece.shape[r].length; c++) {
+            if (currentPiece.shape[r][c]) {
+              drawBlock(myCtx, currentPiece.x + c, currentPiece.y + r, currentPiece.color);
+            }
+          }
+        }
+      }
+    }
+
+    function renderEnemyBoard(grid, piece, ghostY) {
+      renderGrid(enemyCtx, grid);
+
+      if (piece) {
+        if (ghostY !== undefined) {
+          for (let r = 0; r < piece.shape.length; r++) {
+            for (let c = 0; c < piece.shape[r].length; c++) {
+              if (piece.shape[r][c]) {
+                drawBlock(enemyCtx, piece.x + c, ghostY + r, piece.color, true);
+              }
+            }
+          }
+        }
+
+        for (let r = 0; r < piece.shape.length; r++) {
+          for (let c = 0; c < piece.shape[r].length; c++) {
+            if (piece.shape[r][c]) {
+              drawBlock(enemyCtx, piece.x + c, piece.y + r, piece.color);
+            }
+          }
+        }
+      }
+    }
+
+    function drawPreview(ctx, type) {
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      if (!type) return;
+
+      const proto = TETROMINOES[type];
+      const shape = proto.shape;
+      const size = 12; // 縮小サイズ
+      const offsetX = (ctx.canvas.width - shape[0].length * size) / 2;
+      const offsetY = (ctx.canvas.height - shape.length * size) / 2;
+
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            ctx.fillStyle = proto.color;
+            ctx.fillRect(offsetX + c * size, offsetY + r * size, size - 1, size - 1);
+          }
+        }
+      }
+    }
+
+    // 盤面状態を相手へ低遅延送信
+    function sendBoardSync() {
+      if (!conn || !conn.open) return;
+      sendData('board_sync', {
+        grid: myGrid,
+        piece: currentPiece ? {
+          shape: currentPiece.shape,
+          color: currentPiece.color,
+          x: currentPiece.x,
+          y: currentPiece.y
+        } : null,
+        ghostY: getGhostY(),
+        lines: linesCleared,
+        score: score,
+        pendingGarbage: pendingGarbage
+      });
+    }
+
+    /* ==========================================================================
+       6. ゲームループ & 勝敗管理
+       ========================================================================== */
+    function gameLoop(timestamp) {
+      if (!isPlaying) return;
+
+      if (timestamp - lastDropTime > dropInterval) {
+        if (!movePiece(0, 1)) {
+          lockPiece();
+        }
+        lastDropTime = timestamp;
+      }
+
+      animationFrameId = requestAnimationFrame(gameLoop);
+    }
+
+    function startCountdown() {
+      // 盤面リセット
+      myGrid = createEmptyGrid();
+      currentPiece = null;
+      holdPieceType = null;
+      nextPieceType = null;
+      pieceBag = [];
+      score = 0;
+      linesCleared = 0;
+      pendingGarbage = 0;
+      isGameOver = false;
+
+      linesDisplay.innerText = '0';
+      scoreDisplay.innerText = '0';
+      myGarbageBar.style.height = '0%';
+      drawPreview(holdCtx, null);
+      drawPreview(nextCtx, null);
+      render();
+
+      myOverlay.classList.add('active');
+      rematchBtn.style.display = 'none';
+
+      let count = 3;
+      overlayTitle.className = 'overlay-title countdown';
+      overlayTitle.innerText = count;
+
+      const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+          overlayTitle.innerText = count;
+        } else if (count === 0) {
+          overlayTitle.innerText = 'GO!';
+        } else {
+          clearInterval(timer);
+          myOverlay.classList.remove('active');
+          isPlaying = true;
+          spawnPiece();
+          lastDropTime = performance.now();
+          animationFrameId = requestAnimationFrame(gameLoop);
+        }
+      }, 800);
+    }
+
+    function triggerGameOver(isWin) {
+      isPlaying = false;
+      isGameOver = true;
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+      myOverlay.classList.add('active');
+      rematchBtn.style.display = 'block';
+
+      if (isWin) {
+        overlayTitle.className = 'overlay-title win';
+        overlayTitle.innerText = 'YOU WIN!';
+      } else {
+        overlayTitle.className = 'overlay-title lose';
+        overlayTitle.innerText = 'YOU LOSE';
+        sendData('gameover');
+      }
+    }
+
+    /* ==========================================================================
+       7. 操作イベントリスナー
+       ========================================================================== */
+    window.addEventListener('keydown', (e) => {
+      // 入力フォーム操作中はゲームキーを無効化
+      if (document.activeElement === targetIdInput) return;
+
+      if (!isPlaying || isGameOver) return;
+
+      switch (e.code) {
+        case 'ArrowLeft':
+        case 'KeyA':
+          movePiece(-1, 0);
+          e.preventDefault();
+          break;
+        case 'ArrowRight':
+        case 'KeyD':
+          movePiece(1, 0);
+          e.preventDefault();
+          break;
+        case 'ArrowDown':
+        case 'KeyS':
+          if (movePiece(0, 1)) score += 1;
+          e.preventDefault();
+          break;
+        case 'ArrowUp':
+        case 'KeyW':
+        case 'KeyJ':
+        case 'KeyK':
+          rotatePiece();
+          e.preventDefault();
+          break;
+        case 'Space':
+          hardDrop();
+          e.preventDefault();
+          break;
+        case 'KeyC':
+        case 'ShiftLeft':
+        case 'ShiftRight':
+          holdPiece();
+          e.preventDefault();
+          break;
+      }
+    });
+
+    // 接続ボタン
+    connectBtn.addEventListener('click', () => {
+      const targetId = targetIdInput.value.trim();
+      connectToPeer(targetId);
+    });
+
+    targetIdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        connectBtn.click();
+      }
+    });
+
+    // ゲーム開始ボタン
+    startGameBtn.addEventListener('click', () => {
+      sendData('start_countdown');
+      startCountdown();
+    });
+
+    // リトライボタン
+    rematchBtn.addEventListener('click', () => {
+      sendData('rematch');
+      startCountdown();
+    });
+
+    // IDコピー
+    copyIdBtn.addEventListener('click', () => {
+      if (!myShortId) return;
+      navigator.clipboard.writeText(myShortId).then(() => {
+        copyIdBtn.innerText = '完了!';
+        setTimeout(() => { copyIdBtn.innerText = 'コピー'; }, 1500);
+      });
+    });
+
+    // 招待URLコピー
+    copyUrlBtn.addEventListener('click', () => {
+      if (!myShortId) return;
+      const url = window.location.origin + window.location.pathname + '#' + myShortId;
+      navigator.clipboard.writeText(url).then(() => {
+        copyUrlBtn.innerText = '完了!';
+        setTimeout(() => { copyUrlBtn.innerText = '招待URL'; }, 1500);
+      });
+    });
+
+    // 起動
+    window.addEventListener('load', () => {
+      initPeer();
+      render();
+      renderEnemyBoard(createEmptyGrid(), null);
+    });
+  </script>
+</body>
+</html>
