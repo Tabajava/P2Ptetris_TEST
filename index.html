@@ -2,1494 +2,2475 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>対戦テトリス (SRS / T-Spin / 7-Bag対応)</title>
-  <!-- MQTT.js CDN (NAT/ファイアウォールを完全透過する軽量通信ライブラリ) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>超パワーサッカー</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <!-- MQTT.js CDN (NAT/ファイアウォール透過通信) -->
   <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
   <style>
-    :root {
-      --bg-color: #0b0e14;
-      --card-bg: #161b26;
-      --border-color: #232b3e;
-      --accent-cyan: #00f0f0;
-      --accent-magenta: #f00078;
-      --accent-green: #00f078;
-      --accent-yellow: #f0f000;
-      --text-color: #e6edf3;
-      --text-muted: #8b949e;
-      --garbage-color: #636e72;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    @import url('https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=Zen+Maru+Gothic:wght@700;900&display=swap');
 
     body {
-      background-color: var(--bg-color);
-      color: var(--text-color);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 16px;
-      overflow-x: hidden;
+      font-family: 'Zen Maru Gothic', sans-serif;
+      touch-action: manipulation;
       user-select: none;
+      -webkit-user-select: none;
+      background-color: #090d16;
     }
-
-    /* 接続管理バー */
-    .top-panel {
+    .game-font {
+      font-family: 'Mochiy Pop One', cursive;
+    }
+    .comic-shadow {
+      box-shadow: 4px 4px 0px #090d16;
+    }
+    .comic-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0px #090d16;
+    }
+    .touch-btn {
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #game-canvas-container {
       width: 100%;
-      max-width: 980px;
-      background: var(--card-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 12px;
-      padding: 14px 20px;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-      margin-bottom: 16px;
-    }
-
-    .title-area h1 {
-      font-size: 1.25rem;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.85rem;
-      font-weight: bold;
-      padding: 4px 10px;
-      border-radius: 20px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border-color);
-      margin-top: 4px;
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #777;
-      flex-shrink: 0;
-    }
-    .status-badge.connected .status-dot { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
-    .status-badge.waiting .status-dot { background: var(--accent-yellow); box-shadow: 0 0 8px var(--accent-yellow); }
-    .status-badge.error .status-dot { background: var(--accent-magenta); box-shadow: 0 0 8px var(--accent-magenta); }
-
-    .connection-controls {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .id-box {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(0, 0, 0, 0.3);
-      padding: 6px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border-color);
-      font-family: monospace;
-      font-size: 0.95rem;
-    }
-
-    .id-val {
-      font-weight: bold;
-      color: var(--accent-cyan);
-      letter-spacing: 1px;
-    }
-
-    input[type="text"] {
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      color: #fff;
-      padding: 7px 12px;
-      font-size: 0.9rem;
-      font-family: monospace;
-      text-transform: uppercase;
-      outline: none;
-      width: 130px;
-      transition: border-color 0.2s;
-    }
-    input[type="text"]:focus {
-      border-color: var(--accent-cyan);
-    }
-
-    button {
-      background: #232b3e;
-      color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 7px 14px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: bold;
-      font-size: 0.85rem;
-      transition: all 0.2s;
-    }
-    button:hover:not(:disabled) {
-      background: #313d57;
-      border-color: rgba(255, 255, 255, 0.3);
-    }
-    button:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    .btn-primary {
-      background: linear-gradient(135deg, #0099ff, #0055ff);
-      border: none;
-    }
-    .btn-primary:hover:not(:disabled) {
-      background: linear-gradient(135deg, #26a9ff, #1a6dff);
-      box-shadow: 0 0 12px rgba(0, 150, 255, 0.5);
-    }
-    .btn-start {
-      background: linear-gradient(135deg, #00f078, #00a854);
-      color: #000;
-      border: none;
-      font-size: 0.95rem;
-      padding: 7px 18px;
-    }
-    .btn-start:hover:not(:disabled) {
-      background: linear-gradient(135deg, #33ff96, #00c965);
-      box-shadow: 0 0 15px rgba(0, 240, 120, 0.6);
-    }
-
-    /* 対戦フィールドレイアウト */
-    .battle-container {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 28px;
-      flex-wrap: wrap;
-      margin-bottom: 20px;
-    }
-
-    .player-area {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      background: var(--card-bg);
-      padding: 16px;
-      border-radius: 12px;
-      border: 1px solid var(--border-color);
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-      position: relative;
-    }
-
-    .player-area.me {
-      box-shadow: 0 0 25px rgba(0, 240, 240, 0.15);
-      border-color: rgba(0, 240, 240, 0.4);
-    }
-
-    .player-area.enemy {
-      box-shadow: 0 0 25px rgba(240, 0, 120, 0.15);
-      border-color: rgba(240, 0, 120, 0.4);
-    }
-
-    .player-label {
-      font-size: 1rem;
-      font-weight: 800;
-      letter-spacing: 2px;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-    }
-    .player-area.me .player-label { color: var(--accent-cyan); }
-    .player-area.enemy .player-label { color: var(--accent-magenta); }
-
-    .game-layout {
-      display: flex;
-      gap: 12px;
-      align-items: flex-start;
-    }
-
-    .side-col {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      width: 76px;
-    }
-
-    .side-box {
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 6px;
-      text-align: center;
-    }
-    .side-box-title {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      font-weight: bold;
-      letter-spacing: 1px;
-      margin-bottom: 4px;
-    }
-    .side-box canvas {
-      display: block;
-      margin: 0 auto;
-    }
-
-    .stats-box {
-      font-size: 0.75rem;
-      line-height: 1.4;
-      padding: 8px 4px;
-    }
-    .stats-val {
-      font-size: 1.1rem;
-      font-weight: bold;
-      color: #fff;
-      font-family: monospace;
-    }
-
-    .board-wrapper {
-      position: relative;
-      display: flex;
-      gap: 6px;
-    }
-
-    .garbage-meter {
-      width: 8px;
-      height: 480px;
-      background: rgba(0, 0, 0, 0.5);
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      display: flex;
-      flex-direction: column-reverse;
+      height: 100%;
+      position: absolute;
+      inset: 0;
       overflow: hidden;
-    }
-    .garbage-bar {
-      width: 100%;
-      background: linear-gradient(to top, #ff3366, #ff9900);
-      transition: height 0.15s ease-out;
-      box-shadow: 0 0 8px rgba(255, 51, 102, 0.8);
-    }
-
-    canvas.board-canvas {
-      display: block;
-      background: rgba(0, 0, 0, 0.85);
-      border: 2px solid var(--border-color);
-      border-radius: 6px;
-    }
-
-    .action-toast {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 1.2rem;
-      font-weight: 900;
-      color: var(--accent-yellow);
-      text-shadow: 0 0 10px rgba(240, 240, 0, 0.8);
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.3s, transform 0.3s;
-      white-space: nowrap;
-      z-index: 5;
-    }
-    .action-toast.show {
-      opacity: 1;
-      transform: translate(-50%, -80%);
-    }
-
-    .vs-badge {
-      font-size: 2.2rem;
-      font-weight: 900;
-      font-style: italic;
-      color: #3b455b;
-      letter-spacing: 2px;
-    }
-
-    .overlay-message {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(11, 14, 20, 0.88);
-      backdrop-filter: blur(4px);
-      border-radius: 10px;
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 10;
-      gap: 16px;
-    }
-    .overlay-message.active {
-      display: flex;
-    }
-
-    .overlay-title {
-      font-size: 2.4rem;
-      font-weight: 900;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-    }
-    .overlay-title.win {
-      color: var(--accent-green);
-      text-shadow: 0 0 20px var(--accent-green);
-    }
-    .overlay-title.lose {
-      color: var(--accent-magenta);
-      text-shadow: 0 0 20px var(--accent-magenta);
-    }
-    .overlay-title.countdown {
-      font-size: 5rem;
-      color: var(--accent-yellow);
-      text-shadow: 0 0 25px var(--accent-yellow);
-    }
-
-    /* 操作ガイドフッター */
-    .controls-guide {
-      width: 100%;
-      max-width: 980px;
-      background: var(--card-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 14px 20px;
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 20px;
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }
-    .guide-item span {
-      color: #fff;
-      font-weight: bold;
-      background: rgba(255, 255, 255, 0.12);
-      padding: 3px 7px;
-      border-radius: 4px;
-      margin-right: 5px;
     }
   </style>
 </head>
-<body>
+<body class="bg-slate-950 text-white h-screen flex flex-col justify-between overflow-hidden select-none">
 
-  <!-- 上部接続UI -->
-  <div class="top-panel">
-    <div class="title-area">
-      <h1>TETRIS BATTLE</h1>
-      <div id="statusBadge" class="status-badge waiting">
-        <span class="status-dot"></span>
-        <span id="statusText">サーバー接続中...</span>
-      </div>
-    </div>
-
-    <div class="connection-controls">
-      <div class="id-box">
-        <span>MY ID:</span>
-        <span id="myIdDisplay" class="id-val">------</span>
-        <button id="copyIdBtn" title="IDをコピー">コピー</button>
-        <button id="copyUrlBtn" title="招待URLをコピー">招待URL</button>
+  <!-- 1. TITLE SCREEN -->
+  <div id="screen-title" class="fixed inset-0 z-50 bg-gradient-to-br from-emerald-950 via-slate-950 to-blue-950 flex flex-col items-center justify-center p-4">
+    <div class="max-w-xl w-full text-center space-y-8 animate-fade-in">
+      <div class="space-y-3">
+        <div class="inline-block px-4 py-1 rounded-full bg-yellow-400 text-slate-950 font-black text-sm tracking-widest shadow-lg">
+          ⚽ ルール無用バイオレンスサッカー
+        </div>
+        <h1 class="game-font text-5xl md:text-6xl text-yellow-400 drop-shadow-[0_6px_10px_rgba(0,0,0,0.8)] tracking-wide">
+          超パワーサッカー
+        </h1>
+        <p class="text-slate-300 text-sm md:text-base font-bold">
+          殴って、滑って、ゴールを動かし、ベンチを運べ！
+        </p>
       </div>
 
-      <div style="display:flex; gap:6px;">
-        <input type="text" id="targetIdInput" placeholder="相手のID" maxlength="6">
-        <button id="connectBtn" class="btn-primary" disabled>接続</button>
-      </div>
-
-      <button id="startGameBtn" class="btn-start" disabled>ゲーム開始</button>
-    </div>
-  </div>
-
-  <!-- 対戦フィールド -->
-  <div class="battle-container">
-    <div class="player-area me">
-      <div class="player-label">YOU</div>
-      <div class="game-layout">
-        <div class="side-col">
-          <div class="side-box">
-            <div class="side-box-title">HOLD</div>
-            <canvas id="holdCanvas" width="60" height="60"></canvas>
-          </div>
-          <div class="side-box stats-box">
-            <div class="side-box-title">LINES</div>
-            <div id="linesDisplay" class="stats-val">0</div>
-          </div>
-          <div class="side-box stats-box">
-            <div class="side-box-title">SCORE</div>
-            <div id="scoreDisplay" class="stats-val">0</div>
-          </div>
+      <div class="bg-slate-900/90 border-4 border-yellow-400 rounded-3xl p-6 comic-shadow space-y-4">
+        <div>
+          <label class="block text-xs font-black text-slate-300 text-left mb-1">プレイヤー名</label>
+          <input type="text" id="title-player-name" maxlength="10" value="エースストライカー" 
+                 class="w-full bg-slate-950 border-2 border-slate-700 rounded-xl px-4 py-2.5 text-yellow-300 font-bold focus:outline-none focus:border-yellow-400 text-center">
         </div>
 
-        <div class="board-wrapper">
-          <div class="garbage-meter">
-            <div id="myGarbageBar" class="garbage-bar" style="height: 0%;"></div>
-          </div>
-          <canvas id="myCanvas" class="board-canvas" width="240" height="480"></canvas>
-          <div id="myToast" class="action-toast">T-SPIN!</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+          <button id="btn-start-solo" class="comic-btn bg-amber-400 hover:bg-amber-300 text-slate-950 font-black py-3 rounded-2xl border-2 border-black text-base comic-shadow flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-robot"></i>
+            <span>ひとりで遊ぶ (vs AI)</span>
+          </button>
+          <button id="btn-create-lobby" class="comic-btn bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-2xl border-2 border-black text-base comic-shadow flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-house-chimney-window"></i>
+            <span>ルームを作成</span>
+          </button>
         </div>
 
-        <div class="side-col">
-          <div class="side-box">
-            <div class="side-box-title">NEXT</div>
-            <canvas id="nextCanvas" width="60" height="60"></canvas>
-          </div>
+        <div class="pt-2 border-t border-slate-800 flex items-center gap-2">
+          <input type="text" id="input-join-code" placeholder="4桁コード (例: 1234)" maxlength="6" 
+                 class="flex-1 bg-slate-950 border-2 border-slate-700 rounded-xl px-3 py-2 text-white font-black text-center focus:outline-none focus:border-emerald-400 uppercase text-sm">
+          <button id="btn-join-lobby" class="comic-btn bg-blue-500 hover:bg-blue-400 text-white font-black px-5 py-2 rounded-xl border-2 border-black text-sm comic-shadow">
+            参加
+          </button>
         </div>
       </div>
 
-      <div id="myOverlay" class="overlay-message">
-        <div id="overlayTitle" class="overlay-title">READY</div>
-        <button id="rematchBtn" class="btn-primary" style="display:none; padding:10px 24px; font-size:1rem;">もう一度遊ぶ</button>
-      </div>
-    </div>
-
-    <div class="vs-badge">VS</div>
-
-    <div class="player-area enemy">
-      <div class="player-label">ENEMY</div>
-      <div class="game-layout">
-        <div class="board-wrapper">
-          <div class="garbage-meter">
-            <div id="enemyGarbageBar" class="garbage-bar" style="height: 0%;"></div>
-          </div>
-          <canvas id="enemyCanvas" class="board-canvas" width="240" height="480"></canvas>
-          <div id="enemyToast" class="action-toast">T-SPIN!</div>
-        </div>
-
-        <div class="side-col">
-          <div class="side-box stats-box">
-            <div class="side-box-title">LINES</div>
-            <div id="enemyLinesDisplay" class="stats-val">0</div>
-          </div>
-          <div class="side-box stats-box">
-            <div class="side-box-title">SCORE</div>
-            <div id="enemyScoreDisplay" class="stats-val">0</div>
-          </div>
-        </div>
+      <div class="flex justify-center items-center space-x-4 text-xs text-slate-400 font-semibold">
+        <span><i class="fa-solid fa-keyboard mr-1"></i>移動: WASD / 矢印</span>
+        <span>👊 パンチ: [Z]</span>
+        <span>💨 スライド: [X]</span>
+        <span>💥 タックル: [C]</span>
+        <span>🪑 掴む: [V]</span>
       </div>
     </div>
   </div>
 
-  <div class="controls-guide">
-    <div class="guide-item"><span>← / →</span><span>A / D</span> 左右移動 (長押し可)</div>
-    <div class="guide-item"><span>↓</span><span>S</span> 高速ソフトドロップ (長押し)</div>
-    <div class="guide-item"><span>Space</span> ハードドロップ</div>
-    <div class="guide-item"><span>Z</span> 左回転 (CCW)</div>
-    <div class="guide-item"><span>X / ↑</span> 右回転 (CW)</div>
-    <div class="guide-item"><span>C / Shift</span> ホールド</div>
+  <!-- 2. MULTIPLAYER LOBBY SCREEN -->
+  <div id="screen-lobby" class="fixed inset-0 z-50 bg-slate-950/95 flex flex-col items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border-4 border-emerald-400 rounded-3xl max-w-2xl w-full p-6 comic-shadow space-y-5">
+      <div class="flex items-center justify-between border-b-2 border-slate-800 pb-3">
+        <div class="flex items-center space-x-3">
+          <h2 class="game-font text-2xl md:text-3xl text-emerald-400">🏟️ 試合待機ロビー</h2>
+          <span id="lobby-host-indicator" class="text-xs bg-yellow-500 text-slate-950 font-black px-2 py-0.5 rounded-full">ホスト</span>
+        </div>
+        <div class="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+          <span class="text-xs text-slate-400 font-bold">合言葉:</span>
+          <span id="lobby-code-display" class="game-font text-xl text-yellow-300 tracking-wider">----</span>
+          <button id="btn-copy-code" class="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded border border-slate-700" title="コードをコピー">
+            <i class="fa-regular fa-copy"></i>
+          </button>
+          <button id="btn-copy-url" class="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded border border-slate-700" title="招待URLをコピー">
+            <i class="fa-solid fa-link"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Teams Display -->
+      <div class="grid grid-cols-2 gap-4">
+        <!-- Blue Team -->
+        <div class="bg-blue-950/50 border-2 border-blue-500 rounded-2xl p-3">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-black text-blue-400 text-sm flex items-center">
+              <span class="w-3 h-3 rounded-full bg-blue-500 mr-1.5"></span>青組
+            </h3>
+            <button id="btn-join-blue" class="text-[11px] bg-blue-600 hover:bg-blue-500 font-bold px-2 py-0.5 rounded text-white">
+              青に入る
+            </button>
+          </div>
+          <div id="lobby-team-blue-list" class="space-y-1.5 min-h-[90px] text-xs"></div>
+        </div>
+
+        <!-- Red Team -->
+        <div class="bg-rose-950/50 border-2 border-rose-500 rounded-2xl p-3">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-black text-rose-400 text-sm flex items-center">
+              <span class="w-3 h-3 rounded-full bg-rose-500 mr-1.5"></span>赤組
+            </h3>
+            <button id="btn-join-red" class="text-[11px] bg-rose-600 hover:bg-rose-500 font-bold px-2 py-0.5 rounded text-white">
+              赤に入る
+            </button>
+          </div>
+          <div id="lobby-team-red-list" class="space-y-1.5 min-h-[90px] text-xs"></div>
+        </div>
+      </div>
+
+      <!-- Host Settings -->
+      <div id="lobby-host-controls" class="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-black text-amber-300">⚙️ 試合設定 (ホストのみ変更可能)</span>
+          <button id="btn-shuffle-teams" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700 font-bold">
+            <i class="fa-solid fa-shuffle mr-1"></i>チーム自動シャッフル
+          </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+            <div class="flex items-center justify-between mb-1">
+              <label for="chk-enable-time" class="text-[11px] text-slate-300 font-bold flex items-center cursor-pointer">
+                <input type="checkbox" id="chk-enable-time" checked class="mr-1.5 accent-emerald-500 w-3.5 h-3.5">
+                制限時間
+              </label>
+            </div>
+            <select id="lobby-time-select" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-emerald-400">
+              <option value="60">1分 (スピード決戦)</option>
+              <option value="120">2分</option>
+              <option value="180" selected>3分 (標準)</option>
+              <option value="300">5分 (じっくり)</option>
+            </select>
+          </div>
+
+          <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+            <div class="flex items-center justify-between mb-1">
+              <label for="chk-enable-goals" class="text-[11px] text-slate-300 font-bold flex items-center cursor-pointer">
+                <input type="checkbox" id="chk-enable-goals" class="mr-1.5 accent-emerald-500 w-3.5 h-3.5">
+                目標ゴール数
+              </label>
+            </div>
+            <select id="lobby-target-goals-select" disabled class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-emerald-400 opacity-50">
+              <option value="2">2点先取</option>
+              <option value="3" selected>3点先取</option>
+              <option value="5">5点先取</option>
+              <option value="7">7点先取</option>
+              <option value="10">10点先取</option>
+            </select>
+          </div>
+
+          <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+            <label class="block text-[11px] text-slate-300 font-bold mb-1">ボール数制限</label>
+            <select id="lobby-ball-select" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-emerald-400">
+              <option value="1">1個 (普通)</option>
+              <option value="2">最大2個</option>
+              <option value="3" selected>最大3個 (大乱闘)</option>
+              <option value="5">最大5個 (カオス)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between pt-2">
+        <button id="btn-leave-lobby" class="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-xl">
+          <i class="fa-solid fa-arrow-left mr-1"></i>タイトルへ
+        </button>
+        <button id="btn-start-game-match" class="comic-btn bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black px-8 py-3 rounded-2xl border-2 border-black text-base comic-shadow flex items-center space-x-2">
+          <i class="fa-solid fa-play"></i>
+          <span>ゲームスタート！</span>
+        </button>
+      </div>
+    </div>
   </div>
+
+  <!-- 3. MATCH RESULT SCREEN -->
+  <div id="screen-result" class="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border-4 border-yellow-400 rounded-3xl max-w-lg w-full p-6 comic-shadow text-center space-y-5">
+      <div class="space-y-1">
+        <span class="text-xs bg-amber-500 text-slate-950 font-black px-3 py-0.5 rounded-full uppercase">試合終了</span>
+        <h2 id="result-headline" class="game-font text-3xl md:text-4xl text-yellow-300 drop-shadow">
+          青組の完全勝利！
+        </h2>
+      </div>
+
+      <div class="flex items-center justify-center space-x-6 bg-slate-950 border-2 border-slate-800 rounded-2xl py-4">
+        <div class="text-center">
+          <div class="text-xs text-blue-400 font-bold mb-1">青組</div>
+          <div id="result-score-blue" class="game-font text-5xl text-blue-400 font-black">0</div>
+        </div>
+        <div class="text-slate-600 text-3xl font-black">-</div>
+        <div class="text-center">
+          <div class="text-xs text-rose-400 font-bold mb-1">赤組</div>
+          <div id="result-score-red" class="game-font text-5xl text-rose-500 font-black">0</div>
+        </div>
+      </div>
+
+      <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800 text-xs space-y-1 text-slate-300 text-left">
+        <div class="flex justify-between">
+          <span>💥 最多タックル数:</span>
+          <span id="result-stat-tackles" class="font-bold text-yellow-400">0回</span>
+        </div>
+        <div class="flex justify-between">
+          <span>🟨 審判への暴力回数:</span>
+          <span id="result-stat-ref-punches" class="font-bold text-yellow-400">0回</span>
+        </div>
+        <div class="flex justify-between">
+          <span>🧯 消火器乱入回数:</span>
+          <span id="result-stat-intruders" class="font-bold text-rose-400">0回</span>
+        </div>
+      </div>
+
+      <button id="btn-return-to-title" class="comic-btn w-full bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black py-3 rounded-2xl border-2 border-black text-base comic-shadow">
+        タイトルに戻る
+      </button>
+    </div>
+  </div>
+
+  <!-- IN-GAME TOP HUD -->
+  <header id="in-game-header" class="w-full px-4 py-2 flex items-center justify-between z-30 pointer-events-none">
+    <div class="flex items-center space-x-2 pointer-events-auto">
+      <h1 class="game-font text-lg md:text-2xl text-yellow-400 drop-shadow tracking-wider">
+        ⚽ 超パワーサッカー
+      </h1>
+      <button id="btn-sound-toggle" class="comic-btn bg-slate-900/90 border border-slate-700 text-yellow-300 px-2 py-1 rounded-xl text-xs font-bold" title="サウンド切替">
+        <i class="fa-solid fa-volume-high" id="sound-icon"></i>
+      </button>
+    </div>
+
+    <!-- Match Score & Timer Display -->
+    <div class="flex items-center space-x-3 bg-slate-900/90 border-2 border-slate-700 px-3 py-1.5 rounded-2xl shadow-xl pointer-events-auto">
+      <div class="flex items-center space-x-2.5 font-black">
+        <span class="text-blue-400 text-xs md:text-sm">青</span>
+        <span id="score-blue" class="text-2xl md:text-3xl font-black text-blue-400 game-font">0</span>
+        <span class="text-slate-500 text-base">-</span>
+        <span id="score-red" class="text-2xl md:text-3xl font-black text-rose-500 game-font">0</span>
+        <span class="text-rose-400 text-xs md:text-sm">赤</span>
+      </div>
+      <div class="h-6 w-0.5 bg-slate-700"></div>
+      <div class="flex items-center space-x-1.5">
+        <i class="fa-solid fa-stopwatch text-amber-400 text-xs"></i>
+        <span id="match-timer" class="game-font text-xs md:text-sm text-amber-300">03:00</span>
+      </div>
+      <div id="target-goals-badge" class="hidden text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-600 px-1.5 py-0.5 rounded font-black">
+        目標: 3点先取
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="flex items-center space-x-2 pointer-events-auto">
+      <button id="btn-force-end-match" class="hidden comic-btn bg-rose-600 hover:bg-rose-500 text-white font-black px-3 py-1 rounded-xl text-xs border-2 border-black shadow">
+        <i class="fa-solid fa-flag-checkered mr-1"></i>強制終了
+      </button>
+
+      <div class="hidden sm:flex items-center space-x-2 bg-slate-900/90 border border-slate-700 px-3 py-1.5 rounded-2xl text-xs font-bold">
+        <span class="text-yellow-400">🟨 カード:</span>
+        <span id="hud-yellow-count" class="text-white font-black">0/10</span>
+        <div id="hud-intruder-badge" class="hidden ml-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[10px] animate-pulse">
+          乱入中🧯
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN GAME VIEWPORT -->
+  <main class="w-full flex-1 relative overflow-hidden bg-slate-950 flex items-center justify-center">
+    <div id="game-canvas-container">
+      <canvas id="gameCanvas" class="w-full h-full block"></canvas>
+    </div>
+
+    <!-- Floating Minimap Overlay -->
+    <div id="minimap-container" class="absolute top-3 right-4 z-20 pointer-events-none bg-slate-950/80 backdrop-blur-md border-2 border-slate-700 rounded-2xl p-1.5 shadow-2xl">
+      <canvas id="minimapCanvas" width="200" height="115" class="rounded-xl block"></canvas>
+      <div class="flex justify-between items-center px-1 pt-1 text-[9px] text-slate-400 font-bold">
+        <span>🟦青 🟥赤 ⚪球</span>
+        <span>🦓審判 🟨備品</span>
+      </div>
+    </div>
+
+    <!-- Center Big Whistle / Countdown Overlay -->
+    <div id="big-alert-container" class="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
+      <div id="big-alert-box" class="bg-black/90 border-4 border-yellow-400 rounded-3xl px-8 py-5 text-center transform scale-90 opacity-0 transition-all duration-150 comic-shadow">
+        <h2 id="big-alert-title" class="game-font text-4xl md:text-6xl text-yellow-300 drop-shadow">READY</h2>
+        <p id="big-alert-subtitle" class="text-sm md:text-base text-white font-bold mt-1"></p>
+      </div>
+    </div>
+
+    <!-- Referee KO Banner -->
+    <div id="ref-status-banner" class="absolute top-3 left-4 hidden z-20 bg-yellow-400 text-slate-950 font-black px-3 py-1.5 rounded-xl text-xs border-2 border-black shadow-lg animate-bounce pointer-events-none">
+      ⚡ 審判気絶中！5秒間カード無効（無法地帯）！
+    </div>
+  </main>
+
+  <!-- BOTTOM ACTION BAR -->
+  <footer id="in-game-footer" class="w-full px-3 py-2 flex flex-col md:flex-row items-center justify-between gap-2 z-30 bg-slate-950/90 border-t border-slate-900">
+    <div class="w-full flex items-center justify-center md:justify-between gap-2">
+      <div class="hidden lg:flex items-center space-x-2 text-xs text-slate-400 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
+        <i class="fa-solid fa-gamepad text-yellow-400"></i>
+        <span>移動: <b class="text-white">WASD / 矢印</b></span>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-1.5 sm:gap-2.5 w-full sm:w-auto justify-center">
+        <!-- Punch [Z] -->
+        <button id="btn-punch" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-amber-400 to-amber-600 border-2 border-black text-slate-950 px-3 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[65px]">
+          <div id="cd-punch" class="absolute inset-0 bg-slate-950/65 transition-all duration-75 origin-top scale-y-0 pointer-events-none"></div>
+          <span class="text-base">👊</span>
+          <span class="text-[10px] font-black uppercase">パンチ [Z]</span>
+          <span class="text-[8px] text-amber-950 font-black">無罪/審判KO</span>
+        </button>
+
+        <!-- Slide [X] -->
+        <button id="btn-slide" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-cyan-400 to-cyan-600 border-2 border-black text-slate-950 px-3 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[65px]">
+          <div id="cd-slide" class="absolute inset-0 bg-slate-950/65 transition-all duration-75 origin-top scale-y-0 pointer-events-none"></div>
+          <span class="text-base">💨</span>
+          <span class="text-[10px] font-black uppercase">スライド [X]</span>
+          <span class="text-[8px] text-cyan-950 font-black">急加速/減速</span>
+        </button>
+
+        <!-- Tackle [C] -->
+        <button id="btn-tackle" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-rose-500 to-rose-700 border-2 border-black text-white px-3 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[65px]">
+          <div id="cd-tackle" class="absolute inset-0 bg-slate-950/65 transition-all duration-75 origin-top scale-y-0 pointer-events-none"></div>
+          <span class="text-base">💥</span>
+          <span class="text-[10px] font-black uppercase">タックル [C]</span>
+          <span class="text-[8px] text-rose-200 font-black">5秒気絶/大隙</span>
+        </button>
+
+        <!-- Grab / Carry [V] -->
+        <button id="btn-grab" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-emerald-500 to-emerald-700 border-2 border-black text-white px-3 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[70px]">
+          <span class="text-base" id="grab-icon">🪑</span>
+          <span class="text-[10px] font-black uppercase" id="grab-label">掴む [V]</span>
+          <span class="text-[8px] text-emerald-200 font-black" id="grab-sub">備品/ゴール移動</span>
+        </button>
+
+        <!-- Extinguisher [Space] -->
+        <button id="btn-extinguisher" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-purple-500 to-purple-700 border-2 border-black text-white px-3.5 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[75px] opacity-40">
+          <div id="cd-extinguisher" class="absolute inset-0 bg-slate-950/65 transition-all duration-75 origin-top scale-y-0 pointer-events-none"></div>
+          <span class="text-base">🧯</span>
+          <span class="text-[10px] font-black uppercase">消火器 [Space]</span>
+          <span class="text-[8px] text-purple-200 font-black">乱入時のみ (CD18s)</span>
+        </button>
+      </div>
+
+      <div id="hud-carrying-tag" class="hidden text-xs bg-emerald-600 text-slate-950 font-black px-3 py-1 rounded-xl border border-black animate-pulse">
+        📦 備品運搬中 (速度低下)
+      </div>
+    </div>
+  </footer>
 
   <script>
     /* ==========================================================================
-       1. テトリス定数・SRS定義
+       1. サウンドエフェクト (Web Audio API)
        ========================================================================== */
-    const COLS = 10;
-    const ROWS = 20;
-    const BLOCK_SIZE = 24;
-
-    const PIECE_DEFS = {
-      I: { shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], color: '#00f0f0' },
-      O: { shape: [[1,1],[1,1]], color: '#f0f000' },
-      T: { shape: [[0,1,0],[1,1,1],[0,0,0]], color: '#a000f0' },
-      S: { shape: [[0,1,1],[1,1,0],[0,0,0]], color: '#00f000' },
-      Z: { shape: [[1,1,0],[0,1,1],[0,0,0]], color: '#f00000' },
-      J: { shape: [[1,0,0],[1,1,1],[0,0,0]], color: '#0000f0' },
-      L: { shape: [[0,0,1],[1,1,1],[0,0,0]], color: '#f0a000' }
-    };
-    const PIECE_TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
-    const GARBAGE_COLOR = '#636e72';
-
-    const WALLKICK_JLSTZ = {
-      '0>1': [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
-      '1>0': [[0,0], [1,0], [1,1], [0,-2], [1,-2]],
-      '1>2': [[0,0], [1,0], [1,1], [0,-2], [1,-2]],
-      '2>1': [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
-      '2>3': [[0,0], [1,0], [1,-1], [0,2], [1,2]],
-      '3>2': [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]],
-      '3>0': [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]],
-      '0>3': [[0,0], [1,0], [1,-1], [0,2], [1,2]]
-    };
-
-    const WALLKICK_I = {
-      '0>1': [[0,0], [-2,0], [1,0], [-2,1], [1,-2]],
-      '1>0': [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],
-      '1>2': [[0,0], [-1,0], [2,0], [-1,-2], [2,1]],
-      '2>1': [[0,0], [1,0], [-2,0], [1,2], [-2,-1]],
-      '2>3': [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],
-      '3>2': [[0,0], [-2,0], [1,0], [-2,1], [-1,2]],
-      '3>0': [[0,0], [1,0], [-2,0], [1,2], [-2,-1]],
-      '0>3': [[0,0], [-1,0], [2,0], [-1,-2], [2,1]]
-    };
-
-    /* ==========================================================================
-       2. ゲーム内部状態
-       ========================================================================== */
-    let myGrid = createEmptyGrid();
-    let currentPiece = null;
-    let holdPieceType = null;
-    let canHold = true;
-    let pieceBag = [];
-    let nextPieceType = null;
-
-    let score = 0;
-    let linesCleared = 0;
-    let pendingGarbage = 0;
-    let isGameOver = false;
-    let isPlaying = false;
-    let backToBack = false;
-    let lastActionWasRotate = false;
-
-    let lastDropTime = 0;
-    let dropInterval = 850;
-    let animationFrameId = null;
-
-    const keyStates = {};
-    const DAS = 140;
-    const ARR = 32;
-    const SOFT_DROP_INTERVAL = 40;
-
-    let leftHoldTime = 0;
-    let rightHoldTime = 0;
-    let lastSoftDropTick = 0;
-
-    const myCanvas = document.getElementById('myCanvas');
-    const myCtx = myCanvas.getContext('2d');
-    const enemyCanvas = document.getElementById('enemyCanvas');
-    const enemyCtx = enemyCanvas.getContext('2d');
-    const holdCanvas = document.getElementById('holdCanvas');
-    const holdCtx = holdCanvas.getContext('2d');
-    const nextCanvas = document.getElementById('nextCanvas');
-    const nextCtx = nextCanvas.getContext('2d');
-
-    const linesDisplay = document.getElementById('linesDisplay');
-    const scoreDisplay = document.getElementById('scoreDisplay');
-    const enemyLinesDisplay = document.getElementById('enemyLinesDisplay');
-    const enemyScoreDisplay = document.getElementById('enemyScoreDisplay');
-    const myGarbageBar = document.getElementById('myGarbageBar');
-    const enemyGarbageBar = document.getElementById('enemyGarbageBar');
-    const myToast = document.getElementById('myToast');
-    const enemyToast = document.getElementById('enemyToast');
-
-    const myOverlay = document.getElementById('myOverlay');
-    const overlayTitle = document.getElementById('overlayTitle');
-    const rematchBtn = document.getElementById('rematchBtn');
-
-    /* ==========================================================================
-       3. ネットワーク管理 (MQTT over WebSocket: NAT完全透過)
-       ========================================================================== */
-    const TOPIC_PREFIX = 'tetris_battle_2026/';
-    let mqttClient = null;
-    let myId = '';
-    let currentRoomId = '';
-    let enemyId = null;
-    let myClientId = 'client_' + Math.random().toString(36).substring(2, 9);
-    let pingInterval = null;
-
-    const statusBadge = document.getElementById('statusBadge');
-    const statusText = document.getElementById('statusText');
-    const myIdDisplay = document.getElementById('myIdDisplay');
-    const targetIdInput = document.getElementById('targetIdInput');
-    const connectBtn = document.getElementById('connectBtn');
-    const startGameBtn = document.getElementById('startGameBtn');
-    const copyIdBtn = document.getElementById('copyIdBtn');
-    const copyUrlBtn = document.getElementById('copyUrlBtn');
-
-    function updateStatus(state, msg) {
-      statusBadge.className = 'status-badge ' + state;
-      statusText.innerText = msg;
-    }
-
-    function generateShortId() {
-      const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-      let res = '';
-      for (let i = 0; i < 5; i++) {
-        res += chars.charAt(Math.floor(Math.random() * chars.length));
+    class SoundFX {
+      constructor() {
+        this.ctx = null;
+        this.enabled = true;
       }
-      return res;
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      playKick() {
+        if (!this.enabled || !this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(140, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.12);
+          gain.gain.setValueAtTime(0.7, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.12);
+        } catch(e){}
+      }
+      playPunch() {
+        if (!this.enabled || !this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(260, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(65, this.ctx.currentTime + 0.15);
+          gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.15);
+        } catch(e){}
+      }
+      playTackle() {
+        if (!this.enabled || !this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(120, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(28, this.ctx.currentTime + 0.35);
+          gain.gain.setValueAtTime(0.85, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.35);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.35);
+        } catch(e){}
+      }
+      playSlide() {
+        if (!this.enabled || !this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(420, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(140, this.ctx.currentTime + 0.22);
+          gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.22);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.22);
+        } catch(e){}
+      }
+      playWhistle() {
+        if (!this.enabled || !this.ctx) return;
+        try {
+          const t = this.ctx.currentTime;
+          const osc1 = this.ctx.createOscillator();
+          const osc2 = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc1.type = 'triangle';
+          osc2.type = 'sine';
+          osc1.frequency.setValueAtTime(2500, t);
+          osc2.frequency.setValueAtTime(2780, t);
+          gain.gain.setValueAtTime(0.35, t);
+          gain.gain.setValueAtTime(0.05, t + 0.1);
+          gain.gain.setValueAtTime(0.35, t + 0.16);
+          gain.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc1.start(t);
+          osc2.start(t);
+          osc1.stop(t + 0.5);
+          osc2.stop(t + 0.5);
+        } catch(e){}
+      }
+      playCountdownBeep(isHigh = false) {
+        if (!this.enabled || !this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(isHigh ? 987 : 523, this.ctx.currentTime);
+          gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + (isHigh ? 0.6 : 0.2));
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + (isHigh ? 0.6 : 0.2));
+        } catch(e){}
+      }
+      playGoalSiren() {
+        if (!this.enabled || !this.ctx) return;
+        try {
+          const freqs = [350, 523, 659, 880];
+          freqs.forEach((f, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sawtooth';
+            const startTime = this.ctx.currentTime + idx * 0.12;
+            osc.frequency.setValueAtTime(f, startTime);
+            gain.gain.setValueAtTime(0.4, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.45);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(startTime);
+            osc.stop(startTime + 0.45);
+          });
+        } catch(e){}
+      }
+      playExtinguisher() {
+        if (!this.enabled || !this.ctx) return;
+        try {
+          const bufferSize = this.ctx.sampleRate * 0.45;
+          const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+          const noise = this.ctx.createBufferSource();
+          noise.buffer = buffer;
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(2400, this.ctx.currentTime);
+          const gain = this.ctx.createGain();
+          gain.gain.setValueAtTime(0.65, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.45);
+          noise.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.ctx.destination);
+          noise.start();
+        } catch(e){}
+      }
     }
+    const sound = new SoundFX();
+
+    /* ==========================================================================
+       2. フィールド & ゲーム定数
+       ========================================================================== */
+    const WORLD_WIDTH = 2800;
+    const WORLD_HEIGHT = 1600;
+
+    const PITCH = {
+      x: 220,
+      y: 150,
+      w: 2360,
+      h: 1300
+    };
+
+    // クールダウン（消火器は18.0秒に大幅増加）
+    const CD_PUNCH = 0.8;
+    const CD_SLIDE = 3.2;
+    const CD_TACKLE = 6.0;
+    const CD_EXTINGUISHER = 18.0;
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const minimapCanvas = document.getElementById('minimapCanvas');
+    const minimapCtx = minimapCanvas.getContext('2d');
+
+    const camera = {
+      x: 0,
+      y: 0,
+      w: 1280,
+      h: 720,
+      targetX: 0,
+      targetY: 0
+    };
+
+    let matchState = 'TITLE'; // 'TITLE', 'LOBBY', 'COUNTDOWN', 'PLAYING', 'GOAL_PAUSE', 'RESULT'
+    let isSoloMode = true;
+    let roomCode = null;
+    let isHost = true;
+    let myNetId = 'user_' + Math.random().toString(36).substring(2, 8);
+    let localPlayerId = 'p1';
+
+    let isTimeEnabled = true;
+    let matchTimeSeconds = 180;
+    let initialMatchTime = 180;
+    let isTargetGoalsEnabled = false;
+    let targetGoals = 3;
+    let maxBallsLimit = 3;
+
+    let countdownValue = 3;
+    let countdownTimer = 0;
+    let screenShake = 0;
+    let particles = [];
+    let floatingTexts = [];
+
+    const stats = { tackles: 0, refPunches: 0, intruders: 0 };
+    const score = { blue: 0, red: 0 };
+
+    /* ==========================================================================
+       3. オブジェクト初期配置定義
+       ========================================================================== */
+    const GOAL_DEFS = {
+      left: { x: 160, y: PITCH.y + PITCH.h / 2 - 120, w: 60, h: 240 },
+      right: { x: PITCH.x + PITCH.w, y: PITCH.y + PITCH.h / 2 - 120, w: 60, h: 240 }
+    };
+
+    const leftGoal = {
+      id: 'goal_left',
+      type: 'goal',
+      team: 'blue',
+      x: GOAL_DEFS.left.x,
+      y: GOAL_DEFS.left.y,
+      baseX: GOAL_DEFS.left.x,
+      baseY: GOAL_DEFS.left.y,
+      w: GOAL_DEFS.left.w,
+      h: GOAL_DEFS.left.h,
+      isGrabbedBy: null
+    };
+
+    const rightGoal = {
+      id: 'goal_right',
+      type: 'goal',
+      team: 'red',
+      x: GOAL_DEFS.right.x,
+      y: GOAL_DEFS.right.y,
+      baseX: GOAL_DEFS.right.x,
+      baseY: GOAL_DEFS.right.y,
+      w: GOAL_DEFS.right.w,
+      h: GOAL_DEFS.right.h,
+      isGrabbedBy: null
+    };
+
+    const INITIAL_OBSTACLES = [
+      { id: 'b_top1', type: 'bench', name: 'スチールベンチ', x: 600, y: 70, baseX: 600, baseY: 70, w: 90, h: 32 },
+      { id: 'b_top2', type: 'bench', name: 'スチールベンチ', x: 1400, y: 70, baseX: 1400, baseY: 70, w: 90, h: 32 },
+      { id: 'b_top3', type: 'bench', name: 'スチールベンチ', x: 2100, y: 70, baseX: 2100, baseY: 70, w: 90, h: 32 },
+      { id: 'c_top1', type: 'cone', name: '三角コーン', x: 950, y: 80, baseX: 950, baseY: 80, radius: 18 },
+      { id: 'c_top2', type: 'cone', name: '三角コーン', x: 1750, y: 80, baseX: 1750, baseY: 80, radius: 18 },
+
+      { id: 'b_btm1', type: 'bench', name: 'スチールベンチ', x: 750, y: 1480, baseX: 750, baseY: 1480, w: 90, h: 32 },
+      { id: 'b_btm2', type: 'bench', name: 'スチールベンチ', x: 1550, y: 1480, baseX: 1550, baseY: 1480, w: 90, h: 32 },
+      { id: 'bar1', type: 'barricade', name: '工事バリケード', x: 1100, y: 1480, baseX: 1100, baseY: 1480, w: 100, h: 26 },
+      { id: 'bar2', type: 'barricade', name: '工事バリケード', x: 1900, y: 1480, baseX: 1900, baseY: 1480, w: 100, h: 26 },
+      { id: 'c_btm1', type: 'cone', name: '三角コーン', x: 450, y: 1485, baseX: 450, baseY: 1485, radius: 18 },
+      { id: 'c_btm2', type: 'cone', name: '三角コーン', x: 2350, y: 1485, baseX: 2350, baseY: 1485, radius: 18 },
+
+      { id: 'cart1', type: 'cart', name: 'ボール補給カート', x: 1350, y: 1475, baseX: 1350, baseY: 1475, w: 65, h: 42 }
+    ];
+
+    let obstacles = JSON.parse(JSON.stringify(INITIAL_OBSTACLES));
+
+    let balls = [{
+      x: PITCH.x + PITCH.w / 2,
+      y: PITCH.y + PITCH.h / 2,
+      vx: 0,
+      vy: 0,
+      radius: 14,
+      color: '#ffffff',
+      isMain: true
+    }];
+
+    const referee = {
+      x: PITCH.x + PITCH.w / 2,
+      y: PITCH.y + 350,
+      baseX: PITCH.x + PITCH.w / 2,
+      baseY: PITCH.y + 350,
+      vx: 0,
+      vy: 0,
+      radius: 20,
+      facingAngle: Math.PI / 2,
+      koTimer: 0,
+      angerTimer: 6.0,
+      whistleAnimTimer: 0,
+      animLegPhase: 0
+    };
+
+    const FORMATIONS = {
+      blue: [
+        { x: PITCH.x + 400, y: PITCH.y + PITCH.h / 2 },
+        { x: PITCH.x + 220, y: PITCH.y + PITCH.h / 2 - 180 },
+        { x: PITCH.x + 180, y: PITCH.y + PITCH.h / 2 + 180 }
+      ],
+      red: [
+        { x: PITCH.x + PITCH.w - 400, y: PITCH.y + PITCH.h / 2 },
+        { x: PITCH.x + PITCH.w - 220, y: PITCH.y + PITCH.h / 2 - 180 },
+        { x: PITCH.x + PITCH.w - 180, y: PITCH.y + PITCH.h / 2 + 180 }
+      ]
+    };
+
+    let players = [
+      {
+        id: 'p1',
+        netId: myNetId,
+        isLocal: true,
+        name: 'エースストライカー',
+        number: 10,
+        team: 'blue',
+        x: FORMATIONS.blue[0].x,
+        y: FORMATIONS.blue[0].y,
+        vx: 0, vy: 0, radius: 22,
+        facingAngle: 0, facingX: 1, facingY: 0,
+        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
+        yellowCards: 0, isIntruder: false,
+        grabbedObject: null,
+        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
+        actionState: null, animLegPhase: 0,
+        hairColor: '#334155'
+      },
+      {
+        id: 'p2',
+        netId: null,
+        isLocal: false,
+        name: '赤の猛将',
+        number: 9,
+        team: 'red',
+        x: FORMATIONS.red[0].x,
+        y: FORMATIONS.red[0].y,
+        vx: 0, vy: 0, radius: 22,
+        facingAngle: Math.PI, facingX: -1, facingY: 0,
+        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
+        yellowCards: 0, isIntruder: false,
+        grabbedObject: null,
+        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
+        actionState: null, animLegPhase: 0,
+        hairColor: '#7c2d12'
+      },
+      {
+        id: 'p3',
+        netId: null,
+        isLocal: false,
+        name: '青の盾',
+        number: 4,
+        team: 'blue',
+        x: FORMATIONS.blue[1].x,
+        y: FORMATIONS.blue[1].y,
+        vx: 0, vy: 0, radius: 22,
+        facingAngle: 0, facingX: 1, facingY: 0,
+        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
+        yellowCards: 0, isIntruder: false,
+        grabbedObject: null,
+        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
+        actionState: null, animLegPhase: 0,
+        hairColor: '#0f172a'
+      },
+      {
+        id: 'p4',
+        netId: null,
+        isLocal: false,
+        name: '突撃レッド',
+        number: 7,
+        team: 'red',
+        x: FORMATIONS.red[1].x,
+        y: FORMATIONS.red[1].y,
+        vx: 0, vy: 0, radius: 22,
+        facingAngle: Math.PI, facingX: -1, facingY: 0,
+        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
+        yellowCards: 0, isIntruder: false,
+        grabbedObject: null,
+        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
+        actionState: null, animLegPhase: 0,
+        hairColor: '#b45309'
+      },
+      {
+        id: 'p5',
+        netId: null,
+        isLocal: false,
+        name: '工作員P5',
+        number: 11,
+        team: 'red',
+        x: FORMATIONS.red[2].x,
+        y: FORMATIONS.red[2].y,
+        vx: 0, vy: 0, radius: 22,
+        facingAngle: Math.PI, facingX: -1, facingY: 0,
+        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
+        yellowCards: 0, isIntruder: false,
+        grabbedObject: null,
+        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
+        actionState: null, animLegPhase: 0,
+        hairColor: '#1e293b'
+      }
+    ];
+
+    const keys = {
+      KeyW: false, KeyS: false, KeyA: false, KeyD: false,
+      ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
+      KeyZ: false, KeyX: false, KeyC: false, KeyV: false, Space: false
+    };
+
+    let isGrabToggled = false;
+
+    /* ==========================================================================
+       4. 通信システム (MQTT over WebSocket: NAT透過・複数人同期)
+       ========================================================================== */
+    const TOPIC_PREFIX = 'power_soccer_2026/';
+    let mqttClient = null;
+    let netSyncTimer = null;
 
     function initNetwork() {
-      myId = generateShortId();
-      myIdDisplay.innerText = myId;
-      currentRoomId = myId;
-      updateStatus('waiting', '通信サーバー接続中...');
+      if (mqttClient) return;
 
-      // 無料・登録不要の公開WebSocketブローカー (TLS暗号化 8884ポート)
-      // HTTPSと同じ経路を使うため、ルーターやキャリア回線による遮断を100%回避
       mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
-        clientId: myClientId,
+        clientId: myNetId,
         clean: true,
-        reconnectPeriod: 2000
+        reconnectPeriod: 2500
       });
 
       mqttClient.on('connect', () => {
-        updateStatus('waiting', '待機中 (ID共有可)');
-        connectBtn.disabled = false;
-
-        // 自分のIDトピックを購読（ホスト待機）
-        subscribeRoom(myId);
-        checkUrlHash();
+        if (roomCode) {
+          mqttClient.subscribe(TOPIC_PREFIX + roomCode);
+        }
       });
 
-      mqttClient.on('message', (topic, message) => {
+      mqttClient.on('message', (topic, payload) => {
         try {
-          const data = JSON.parse(message.toString());
-          // 自分が送信したメッセージは無視
-          if (data.sender === myClientId) return;
-          handleNetworkData(data);
+          const msg = JSON.parse(payload.toString());
+          if (msg.sender === myNetId) return; // 自分のパケットは除外
+          handleNetworkMessage(msg);
         } catch (e) {
-          console.error('受信パケット解析エラー:', e);
-        }
-      });
-
-      mqttClient.on('error', (err) => {
-        console.error('MQTT error:', err);
-        updateStatus('error', 'サーバー接続失敗 (リロードしてください)');
-      });
-
-      mqttClient.on('close', () => {
-        if (enemyId) {
-          updateStatus('waiting', '相手との接続が切断されました');
-          startGameBtn.disabled = true;
-          isPlaying = false;
-          enemyId = null;
+          console.error('MQTT message error:', e);
         }
       });
     }
 
-    function subscribeRoom(roomId) {
-      const fullTopic = TOPIC_PREFIX + roomId;
-      mqttClient.subscribe(fullTopic, { qos: 0 });
-    }
-
-    function sendData(type, payload = {}) {
-      if (!mqttClient || !mqttClient.connected || !currentRoomId) return;
-      const fullTopic = TOPIC_PREFIX + currentRoomId;
-      const message = JSON.stringify({
-        sender: myClientId,
+    function sendNet(type, data = {}) {
+      if (!mqttClient || !mqttClient.connected || !roomCode) return;
+      const payload = JSON.stringify({
+        sender: myNetId,
         type: type,
-        ...payload
+        ...data
       });
-      mqttClient.publish(fullTopic, message, { qos: 0 });
+      mqttClient.publish(TOPIC_PREFIX + roomCode, payload, { qos: 0 });
     }
 
-    function connectToRoom(targetRoomId) {
-      targetRoomId = targetRoomId.trim().toUpperCase();
-      if (!targetRoomId || targetRoomId.length < 4) {
-        alert('相手のIDを正しく入力してください');
-        return;
-      }
-      if (targetRoomId === myId) {
-        alert('自分自身には接続できません');
-        return;
-      }
-
-      currentRoomId = targetRoomId;
-      subscribeRoom(currentRoomId);
-      updateStatus('waiting', '相手のルームに接続中...');
-      connectBtn.disabled = true;
-
-      // 相手へ挨拶メッセージを送信
-      sendData('join_request', { fromId: myId });
-
-      // 5秒以内にACKが返らない場合は再試行を促す
-      setTimeout(() => {
-        if (!enemyId) {
-          updateStatus('waiting', '相手がページを開いているか確認してください');
-          connectBtn.disabled = false;
-        }
-      }, 5000);
-    }
-
-    function handleNetworkData(data) {
-      switch (data.type) {
+    function handleNetworkMessage(msg) {
+      switch (msg.type) {
         case 'join_request':
-          // ゲストが参加してきた場合
-          enemyId = data.sender;
-          targetIdInput.value = data.fromId || '';
-          sendData('join_accept');
-          updateStatus('connected', '接続完了！対戦可能です');
-          startGameBtn.disabled = false;
-          startHeartbeat();
+          if (isHost) {
+            // 空いているスロットへ割り当て
+            let targetSlot = players.find(p => p.id !== 'p1' && !p.netId);
+            if (targetSlot) {
+              targetSlot.netId = msg.sender;
+              targetSlot.name = msg.name || '参加者';
+              targetSlot.team = msg.team || 'red';
+            }
+            broadcastLobbyState();
+          }
           break;
 
-        case 'join_accept':
-          // ホストが参加を受け入れた場合
-          enemyId = data.sender;
-          connectBtn.disabled = false;
-          updateStatus('connected', '接続完了！対戦可能です');
-          startGameBtn.disabled = false;
-          startHeartbeat();
+        case 'lobby_sync':
+          // ゲスト側でロビー情報を反映
+          if (!isHost) {
+            msg.roster.forEach(r => {
+              const p = players.find(pl => pl.id === r.id);
+              if (p) {
+                p.netId = r.netId;
+                p.name = r.name;
+                p.team = r.team;
+                p.isLocal = (r.netId === myNetId);
+                if (p.isLocal) localPlayerId = p.id;
+              }
+            });
+            isTimeEnabled = msg.rules.isTimeEnabled;
+            matchTimeSeconds = msg.rules.matchTimeSeconds;
+            isTargetGoalsEnabled = msg.rules.isTargetGoalsEnabled;
+            targetGoals = msg.rules.targetGoals;
+            maxBallsLimit = msg.rules.maxBallsLimit;
+            renderLobbyRoster();
+          }
           break;
 
-        case 'heartbeat':
-          // 相手が生存していることを確認
+        case 'match_start':
+          isSoloMode = false;
+          showScreen('IN_GAME');
+          startRoundReset(null, true);
           break;
 
-        case 'start_countdown':
-          startCountdown();
+        case 'player_input_sync':
+          const senderPlayer = players.find(p => p.id === msg.playerId);
+          if (senderPlayer && !senderPlayer.isLocal) {
+            senderPlayer.x = msg.x;
+            senderPlayer.y = msg.y;
+            senderPlayer.vx = msg.vx;
+            senderPlayer.vy = msg.vy;
+            senderPlayer.facingAngle = msg.facingAngle;
+            senderPlayer.facingX = msg.facingX;
+            senderPlayer.facingY = msg.facingY;
+            senderPlayer.actionState = msg.actionState;
+            senderPlayer.animLegPhase = msg.animLegPhase;
+
+            // 掴んでいるオブジェクトの同期
+            if (msg.grabbedObjId) {
+              const obj = [leftGoal, rightGoal, ...obstacles].find(o => o.id === msg.grabbedObjId);
+              if (obj) {
+                senderPlayer.grabbedObject = obj;
+                obj.isGrabbedBy = senderPlayer.id;
+              }
+            } else if (senderPlayer.grabbedObject) {
+              senderPlayer.grabbedObject.isGrabbedBy = null;
+              senderPlayer.grabbedObject = null;
+            }
+          }
           break;
 
-        case 'board_sync':
-          renderEnemyBoard(data.grid, data.piece, data.ghostY);
-          enemyLinesDisplay.innerText = data.lines;
-          enemyScoreDisplay.innerText = data.score;
-          enemyGarbageBar.style.height = `${Math.min(100, (data.pendingGarbage / 20) * 100)}%`;
+        case 'host_world_sync':
+          if (!isHost) {
+            // ボール・審判・スコア・タイマーの同期
+            if (msg.balls) balls = msg.balls;
+            if (msg.referee) {
+              referee.x = msg.referee.x;
+              referee.y = msg.referee.y;
+              referee.koTimer = msg.referee.koTimer;
+            }
+            if (msg.score) {
+              score.blue = msg.score.blue;
+              score.red = msg.score.red;
+            }
+            if (msg.matchTimeSeconds !== undefined) {
+              matchTimeSeconds = msg.matchTimeSeconds;
+            }
+            // 未掴みのゴール・備品位置の同期
+            if (msg.obstacles) {
+              msg.obstacles.forEach(so => {
+                const localObj = obstacles.find(o => o.id === so.id);
+                if (localObj && !localObj.isGrabbedBy) {
+                  localObj.x = so.x;
+                  localObj.y = so.y;
+                }
+              });
+            }
+            if (msg.goals) {
+              if (!leftGoal.isGrabbedBy) { leftGoal.x = msg.goals.left.x; leftGoal.y = msg.goals.left.y; }
+              if (!rightGoal.isGrabbedBy) { rightGoal.x = msg.goals.right.x; rightGoal.y = msg.goals.right.y; }
+            }
+          }
           break;
 
-        case 'toast':
-          showToast(enemyToast, data.text);
+        case 'action_event':
+          handleRemoteAction(msg);
           break;
 
-        case 'garbage':
-          pendingGarbage += data.lines;
-          updateGarbageMeter();
+        case 'match_end':
+          triggerMatchEnd(msg.reason, false);
           break;
 
-        case 'gameover':
-          triggerGameOver(true);
-          break;
-
-        case 'rematch':
-          startCountdown();
+        case 'round_reset':
+          startRoundReset(msg.scoringTeam, false);
           break;
       }
     }
 
-    function startHeartbeat() {
-      if (pingInterval) clearInterval(pingInterval);
-      pingInterval = setInterval(() => {
-        if (enemyId) sendData('heartbeat');
-      }, 5000);
+    function broadcastLobbyState() {
+      sendNet('lobby_sync', {
+        roster: players.map(p => ({ id: p.id, netId: p.netId, name: p.name, team: p.team })),
+        rules: {
+          isTimeEnabled,
+          matchTimeSeconds,
+          isTargetGoalsEnabled,
+          targetGoals,
+          maxBallsLimit
+        }
+      });
+      renderLobbyRoster();
     }
 
-    function checkUrlHash() {
-      const hash = window.location.hash.replace('#', '').trim().toUpperCase();
-      if (hash && hash !== myId) {
-        targetIdInput.value = hash;
-        connectToRoom(hash);
-      }
-    }
-
-    function showToast(elem, text) {
-      elem.innerText = text;
-      elem.classList.add('show');
-      setTimeout(() => { elem.classList.remove('show'); }, 1200);
+    function handleRemoteAction(msg) {
+      const actor = players.find(p => p.id === msg.actorId);
+      if (!actor) return;
+      if (msg.action === 'punch') executePunch(actor, true);
+      else if (msg.action === 'slide') executeSlide(actor, true);
+      else if (msg.action === 'tackle') executeTackle(actor, true);
+      else if (msg.action === 'extinguisher') executeExtinguisher(actor, true);
     }
 
     /* ==========================================================================
-       4. 7-Bag & テトリス基本システム
+       5. リセットロジック（試合終了リセット ＆ ゴール後イエローカード維持リセット）
        ========================================================================== */
-    function createEmptyGrid() {
-      return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-    }
+    // A. 試合終了時の完全リセット（タイトルへ戻る際や新規試合開始時に全初期化）
+    function resetMatchCompletely() {
+      matchState = 'TITLE';
+      score.blue = 0;
+      score.red = 0;
+      stats.tackles = 0;
+      stats.refPunches = 0;
+      stats.intruders = 0;
+      isGrabToggled = false;
+      keys.KeyV = false;
 
-    function refillBag() {
-      const bag = [...PIECE_TYPES];
-      for (let i = bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [bag[i], bag[j]] = [bag[j], bag[i]];
-      }
-      return bag;
-    }
-
-    function getNextPieceType() {
-      if (pieceBag.length === 0) {
-        pieceBag = refillBag();
-      }
-      return pieceBag.pop();
-    }
-
-    function spawnPiece() {
-      if (!nextPieceType) {
-        nextPieceType = getNextPieceType();
-      }
-      const type = nextPieceType;
-      nextPieceType = getNextPieceType();
-      drawPreview(nextCtx, nextPieceType);
-
-      const proto = PIECE_DEFS[type];
-      currentPiece = {
-        type: type,
-        shape: proto.shape.map(r => [...r]),
-        color: proto.color,
-        rotation: 0,
-        x: Math.floor((COLS - proto.shape[0].length) / 2),
-        y: type === 'I' ? -1 : 0
-      };
-
-      canHold = true;
-      lastActionWasRotate = false;
-
-      if (checkCollision(currentPiece.shape, currentPiece.x, currentPiece.y, myGrid)) {
-        triggerGameOver(false);
-      }
-    }
-
-    function checkCollision(shape, px, py, grid) {
-      for (let r = 0; r < shape.length; r++) {
-        for (let c = 0; c < shape[r].length; c++) {
-          if (shape[r][c]) {
-            const gx = px + c;
-            const gy = py + r;
-            if (gx < 0 || gx >= COLS || gy >= ROWS) {
-              return true;
-            }
-            if (gy >= 0 && grid[gy][gx]) {
-              return true;
-            }
-          }
+      // 全プレイヤー完全初期化（カードも0、乱入解除）
+      players.forEach((p, idx) => {
+        p.yellowCards = 0;
+        p.isIntruder = false;
+        p.stunTimer = 0;
+        p.slowTimer = 0;
+        p.whiffTimer = 0;
+        p.vx = 0; p.vy = 0;
+        p.cds = { punch: 0, slide: 0, tackle: 0, extinguisher: 0 };
+        p.actionState = null;
+        if (p.grabbedObject) {
+          p.grabbedObject.isGrabbedBy = null;
+          p.grabbedObject = null;
         }
-      }
-      return false;
+      });
+
+      // ゴール・備品・審判・ボールを完全初期位置へ
+      resetWorldEntities();
     }
 
-    /* ==========================================================================
-       5. SRS 回転 ＆ T-Spin 判定
-       ========================================================================== */
-    function rotateShape(shape, dir) {
-      const n = shape.length;
-      const res = Array.from({ length: n }, () => Array(n).fill(0));
-      for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; c++) {
-          if (dir === 'CW') {
-            res[c][n - 1 - r] = shape[r][c];
-          } else {
-            res[n - 1 - c][r] = shape[r][c];
-          }
-        }
-      }
-      return res;
+    // B. フィールド上の全配置物を初期位置へ
+    function resetWorldEntities() {
+      leftGoal.x = GOAL_DEFS.left.x;
+      leftGoal.y = GOAL_DEFS.left.y;
+      leftGoal.isGrabbedBy = null;
+
+      rightGoal.x = GOAL_DEFS.right.x;
+      rightGoal.y = GOAL_DEFS.right.y;
+      rightGoal.isGrabbedBy = null;
+
+      obstacles = JSON.parse(JSON.stringify(INITIAL_OBSTACLES));
+      obstacles.forEach(o => { o.isGrabbedBy = null; });
+
+      referee.x = referee.baseX;
+      referee.y = referee.baseY;
+      referee.vx = 0; referee.vy = 0;
+      referee.koTimer = 0;
+      referee.angerTimer = 6.0;
+
+      balls = [{
+        x: PITCH.x + PITCH.w / 2,
+        y: PITCH.y + PITCH.h / 2,
+        vx: 0, vy: 0,
+        radius: 14,
+        color: '#ffffff',
+        isMain: true
+      }];
     }
 
-    function rotatePiece(dir) {
-      if (!currentPiece || !isPlaying) return;
-      if (currentPiece.type === 'O') return;
+    // C. ゴール後のラウンドリセット（※イエローカード・乱入状態のみ完全維持！）
+    function startRoundReset(scoringTeam = null, broadcast = true) {
+      if (broadcast && !isSoloMode && isHost) {
+        sendNet('round_reset', { scoringTeam });
+      }
 
-      const fromRot = currentPiece.rotation;
-      const toRot = dir === 'CW' ? (fromRot + 1) % 4 : (fromRot + 3) % 4;
-      const newShape = rotateShape(currentPiece.shape, dir);
-
-      const kickKey = `${fromRot}>${toRot}`;
-      const kickTable = currentPiece.type === 'I' ? WALLKICK_I[kickKey] : WALLKICK_JLSTZ[kickKey];
-
-      for (const [kx, ky] of kickTable) {
-        if (!checkCollision(newShape, currentPiece.x + kx, currentPiece.y + ky, myGrid)) {
-          currentPiece.shape = newShape;
-          currentPiece.x += kx;
-          currentPiece.y += ky;
-          currentPiece.rotation = toRot;
-          lastActionWasRotate = true;
-          sendBoardSync();
-          render();
+      // 目標ゴール数判定
+      if (isTargetGoalsEnabled) {
+        if (score.blue >= targetGoals || score.red >= targetGoals) {
+          triggerMatchEnd('target_goals');
           return;
         }
       }
-    }
 
-    function checkTSpin() {
-      if (!currentPiece || currentPiece.type !== 'T' || !lastActionWasRotate) {
-        return false;
-      }
-      const cx = currentPiece.x + 1;
-      const cy = currentPiece.y + 1;
-      const corners = [
-        [cx - 1, cy - 1],
-        [cx + 1, cy - 1],
-        [cx - 1, cy + 1],
-        [cx + 1, cy + 1]
-      ];
+      matchState = 'COUNTDOWN';
+      countdownValue = 3;
+      countdownTimer = 3.5;
 
-      let occupied = 0;
-      for (const [x, y] of corners) {
-        if (x < 0 || x >= COLS || y >= ROWS || (y >= 0 && myGrid[y][x] !== 0)) {
-          occupied++;
-        }
-      }
-      return occupied >= 3;
-    }
+      // 掴み強制解除（バグ防止）
+      players.forEach(p => {
+        dropGrabbed(p);
+        p.vx = 0; p.vy = 0;
+        p.actionState = null;
+        p.whiffTimer = 0;
+        p.stunTimer = 0;
+        p.slowTimer = 0;
+      });
+      isGrabToggled = false;
+      keys.KeyV = false;
 
-    function movePiece(dx, dy) {
-      if (!currentPiece || !isPlaying) return false;
-      if (!checkCollision(currentPiece.shape, currentPiece.x + dx, currentPiece.y + dy, myGrid)) {
-        currentPiece.x += dx;
-        currentPiece.y += dy;
-        if (dx !== 0 || dy !== 0) {
-          lastActionWasRotate = false;
-        }
-        sendBoardSync();
-        render();
-        return true;
-      }
-      return false;
-    }
-
-    function hardDrop() {
-      if (!currentPiece || !isPlaying) return;
-      while (movePiece(0, 1)) {
-        score += 2;
-      }
-      lockPiece();
-    }
-
-    function holdPiece() {
-      if (!currentPiece || !canHold || !isPlaying) return;
-
-      const currentType = currentPiece.type;
-      if (!holdPieceType) {
-        holdPieceType = currentType;
-        spawnPiece();
-      } else {
-        const swapType = holdPieceType;
-        holdPieceType = currentType;
-        const proto = PIECE_DEFS[swapType];
-        currentPiece = {
-          type: swapType,
-          shape: proto.shape.map(r => [...r]),
-          color: proto.color,
-          rotation: 0,
-          x: Math.floor((COLS - proto.shape[0].length) / 2),
-          y: swapType === 'I' ? -1 : 0
-        };
-      }
-      canHold = false;
-      lastActionWasRotate = false;
-      drawPreview(holdCtx, holdPieceType);
-      sendBoardSync();
-      render();
-    }
-
-    function getGhostY() {
-      if (!currentPiece) return 0;
-      let gy = currentPiece.y;
-      while (!checkCollision(currentPiece.shape, currentPiece.x, gy + 1, myGrid)) {
-        gy++;
-      }
-      return gy;
-    }
-
-    function lockPiece() {
-      const isTSpin = checkTSpin();
-
-      for (let r = 0; r < currentPiece.shape.length; r++) {
-        for (let c = 0; c < currentPiece.shape[r].length; c++) {
-          if (currentPiece.shape[r][c]) {
-            const gy = currentPiece.y + r;
-            const gx = currentPiece.x + c;
-            if (gy >= 0 && gy < ROWS && gx >= 0 && gx < COLS) {
-              myGrid[gy][gx] = currentPiece.color;
-            }
-          }
-        }
-      }
-
-      currentPiece = null;
-      clearLines(isTSpin);
-      applyPendingGarbage();
-      spawnPiece();
-      sendBoardSync();
-      render();
-    }
-
-    /* ==========================================================================
-       6. ライン消去・攻撃力（B2B / T-Spin）
-       ========================================================================== */
-    function clearLines(isTSpin) {
-      let lines = 0;
-      for (let r = ROWS - 1; r >= 0; r--) {
-        if (myGrid[r].every(cell => cell !== 0)) {
-          myGrid.splice(r, 1);
-          myGrid.unshift(Array(COLS).fill(0));
-          lines++;
-          r++;
-        }
-      }
-
-      let sendGarbage = 0;
-      let toastText = '';
-
-      if (isTSpin) {
-        if (lines === 0) {
-          toastText = 'T-SPIN!';
-          score += 400;
-        } else if (lines === 1) {
-          toastText = 'T-SPIN SINGLE!';
-          sendGarbage = 2;
-          score += 800;
-        } else if (lines === 2) {
-          toastText = 'T-SPIN DOUBLE!';
-          sendGarbage = 4;
-          score += 1200;
-        } else if (lines === 3) {
-          toastText = 'T-SPIN TRIPLE!';
-          sendGarbage = 6;
-          score += 1600;
-        }
-      } else {
-        if (lines === 1) {
-          score += 100;
-        } else if (lines === 2) {
-          sendGarbage = 1;
-          score += 300;
-        } else if (lines === 3) {
-          sendGarbage = 2;
-          score += 500;
-        } else if (lines === 4) {
-          toastText = 'TETRIS!';
-          sendGarbage = 4;
-          score += 800;
-        }
-      }
-
-      if (lines > 0) {
-        linesCleared += lines;
-        const isDifficult = isTSpin || lines === 4;
-        if (isDifficult) {
-          if (backToBack) {
-            sendGarbage += 1;
-            toastText = 'B2B ' + toastText;
-          }
-          backToBack = true;
+      // プレイヤーを初期フォーメーションへ（イエローカード・isIntruderはそのまま維持！）
+      let bIdx = 0, rIdx = 0;
+      players.forEach(p => {
+        if (p.team === 'blue') {
+          const form = FORMATIONS.blue[bIdx % FORMATIONS.blue.length];
+          p.x = form.x; p.y = form.y;
+          p.facingAngle = 0; p.facingX = 1; p.facingY = 0;
+          bIdx++;
         } else {
-          backToBack = false;
+          const form = FORMATIONS.red[rIdx % FORMATIONS.red.length];
+          p.x = form.x; p.y = form.y;
+          p.facingAngle = Math.PI; p.facingX = -1; p.facingY = 0;
+          rIdx++;
         }
+      });
 
-        if (toastText) {
-          showToast(myToast, toastText);
-          sendData('toast', { text: toastText });
-        }
+      // ゴール・備品・ボール・審判をすべて初期位置にリセット
+      resetWorldEntities();
 
-        linesDisplay.innerText = linesCleared;
-        scoreDisplay.innerText = score;
-
-        if (sendGarbage > 0) {
-          if (pendingGarbage > 0) {
-            const offset = Math.min(pendingGarbage, sendGarbage);
-            pendingGarbage -= offset;
-            sendGarbage -= offset;
-            updateGarbageMeter();
-          }
-          if (sendGarbage > 0) {
-            sendData('garbage', { lines: sendGarbage });
-          }
-        }
-      }
+      sound.playCountdownBeep(false);
+      showBigAlert('3', scoringTeam ? `${scoringTeam === 'blue' ? '青組' : '赤組'} 得点！開始準備` : 'まもなく開始', 'text-yellow-400', 0);
     }
 
-    function applyPendingGarbage() {
-      if (pendingGarbage <= 0) return;
-
-      const linesToAdd = pendingGarbage;
-      pendingGarbage = 0;
-      updateGarbageMeter();
-
-      for (let i = 0; i < linesToAdd; i++) {
-        if (myGrid[0].some(cell => cell !== 0)) {
-          triggerGameOver(false);
-          return;
-        }
-        myGrid.shift();
-        const hole = Math.floor(Math.random() * COLS);
-        const garbageRow = Array(COLS).fill(GARBAGE_COLOR);
-        garbageRow[hole] = 0;
-        myGrid.push(garbageRow);
+    function triggerMatchEnd(reason = 'time', broadcast = true) {
+      matchState = 'RESULT';
+      if (broadcast && !isSoloMode && isHost) {
+        sendNet('match_end', { reason });
       }
-    }
 
-    function updateGarbageMeter() {
-      const percent = Math.min(100, (pendingGarbage / 20) * 100);
-      myGarbageBar.style.height = `${percent}%`;
+      const headline = document.getElementById('result-headline');
+      if (score.blue > score.red) headline.textContent = '青組の勝利！';
+      else if (score.red > score.blue) headline.textContent = '赤組の勝利！';
+      else headline.textContent = '白熱の引き分け！';
+
+      if (reason === 'host_forced') headline.textContent = 'ホストにより試合終了！';
+      else if (reason === 'target_goals') {
+        const winner = score.blue > score.red ? '青組' : '赤組';
+        headline.textContent = `${winner}が目標達成で勝利！`;
+      }
+
+      document.getElementById('result-score-blue').textContent = score.blue;
+      document.getElementById('result-score-red').textContent = score.red;
+      document.getElementById('result-stat-tackles').textContent = `${stats.tackles}回`;
+      document.getElementById('result-stat-ref-punches').textContent = `${stats.refPunches}回 (KO ${stats.refPunches * 5}秒)`;
+      document.getElementById('result-stat-intruders').textContent = `${stats.intruders}回`;
+
+      showScreen('RESULT');
     }
 
     /* ==========================================================================
-       7. 描画
+       6. 掴み＆アクション管理（Vキー不具合の根治）
        ========================================================================== */
-    function drawBlock(ctx, x, y, color, isGhost = false) {
-      const px = x * BLOCK_SIZE;
-      const py = y * BLOCK_SIZE;
+    function dropGrabbed(player) {
+      if (player.grabbedObject) {
+        player.grabbedObject.isGrabbedBy = null;
+        player.grabbedObject = null;
+      }
+      if (player.isLocal) {
+        isGrabToggled = false;
+        keys.KeyV = false;
+      }
+    }
 
-      if (isGhost) {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(px + 1.5, py + 1.5, BLOCK_SIZE - 3, BLOCK_SIZE - 3);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-        ctx.fillRect(px + 2, py + 2, BLOCK_SIZE - 4, BLOCK_SIZE - 4);
+    function updatePlayerGrab(player) {
+      // 気絶中や隙硬直中は強制手放し
+      if (player.stunTimer > 0 || player.whiffTimer > 0) {
+        if (player.grabbedObject) {
+          dropGrabbed(player);
+          showFloatText('落とした！', player.x, player.y - 30, '#ef4444', 16);
+        }
         return;
       }
 
-      ctx.fillStyle = color;
-      ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
+      const wantGrab = (keys.KeyV || isGrabToggled);
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(px + BLOCK_SIZE, py);
-      ctx.lineTo(px + BLOCK_SIZE - 3, py + 3);
-      ctx.lineTo(px + 3, py + 3);
-      ctx.lineTo(px + 3, py + BLOCK_SIZE - 3);
-      ctx.lineTo(px, py + BLOCK_SIZE);
-      ctx.closePath();
-      ctx.fill();
+      if (wantGrab) {
+        if (!player.grabbedObject) {
+          const reach = 85;
+          let candidate = null;
 
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.beginPath();
-      ctx.moveTo(px + BLOCK_SIZE, py);
-      ctx.lineTo(px + BLOCK_SIZE, py + BLOCK_SIZE);
-      ctx.lineTo(px, py + BLOCK_SIZE);
-      ctx.lineTo(px + 3, py + BLOCK_SIZE - 3);
-      ctx.lineTo(px + BLOCK_SIZE - 3, py + BLOCK_SIZE - 3);
-      ctx.lineTo(px + BLOCK_SIZE - 3, py + 3);
-      ctx.closePath();
-      ctx.fill();
-    }
+          // ゴール判定
+          [leftGoal, rightGoal].forEach(g => {
+            const gx = g.x + g.w / 2;
+            const gy = g.y + g.h / 2;
+            if (Math.hypot(player.x - gx, player.y - gy) < reach + 45 && !g.isGrabbedBy) {
+              candidate = g;
+            }
+          });
 
-    function renderGrid(ctx, grid) {
-      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+          // 備品判定
+          if (!candidate) {
+            obstacles.forEach(obs => {
+              const ox = obs.x + (obs.w ? obs.w / 2 : 0);
+              const oy = obs.y + (obs.h ? obs.h / 2 : 0);
+              if (Math.hypot(player.x - ox, player.y - oy) < reach && !obs.isGrabbedBy) {
+                candidate = obs;
+              }
+            });
+          }
 
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-      ctx.lineWidth = 1;
-      for (let r = 0; r <= ROWS; r++) {
-        ctx.beginPath();
-        ctx.moveTo(0, r * BLOCK_SIZE);
-        ctx.lineTo(COLS * BLOCK_SIZE, r * BLOCK_SIZE);
-        ctx.stroke();
-      }
-      for (let c = 0; c <= COLS; c++) {
-        ctx.beginPath();
-        ctx.moveTo(c * BLOCK_SIZE, 0);
-        ctx.lineTo(c * BLOCK_SIZE, ROWS * BLOCK_SIZE);
-        ctx.stroke();
+          if (candidate) {
+            player.grabbedObject = candidate;
+            candidate.isGrabbedBy = player.id;
+            showFloatText(`${candidate.name || 'ゴール'}を掴んだ！`, player.x, player.y - 30, '#10b981', 18);
+          }
+        }
+      } else {
+        if (player.grabbedObject) {
+          showFloatText(`${player.grabbedObject.name || 'ゴール'}を設置！`, player.x, player.y - 30, '#6ee7b7', 16);
+          dropGrabbed(player);
+        }
       }
 
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          if (grid[r][c]) {
-            drawBlock(ctx, c, r, grid[r][c]);
+      // 掴んでいるオブジェクトをプレイヤー前方に連動
+      if (player.grabbedObject) {
+        const obj = player.grabbedObject;
+        const dragDist = player.radius + (obj.radius || (obj.w ? Math.min(obj.w, obj.h) / 2 : 25)) + 14;
+        const targetX = player.x + player.facingX * dragDist;
+        const targetY = player.y + player.facingY * dragDist;
+
+        if (obj.radius) {
+          obj.x = targetX; obj.y = targetY;
+        } else {
+          obj.x = targetX - obj.w / 2; obj.y = targetY - obj.h / 2;
+        }
+
+        // カート特典
+        if (obj.type === 'cart' && balls.length < maxBallsLimit) {
+          if (obj.x > PITCH.x && obj.x < PITCH.x + PITCH.w && Math.random() < 0.05) {
+            balls.push({
+              x: obj.x + 30, y: obj.y + 20,
+              vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+              radius: 14, color: '#fef08a', isMain: false
+            });
+            sound.playKick();
+            showFloatText('予備ボール出現！', obj.x, obj.y - 20, '#facc15', 20);
           }
         }
       }
     }
 
-    function render() {
-      renderGrid(myCtx, myGrid);
+    function checkFoul(player, actionName) {
+      if (referee.koTimer > 0) {
+        showFloatText('審判気絶でセーフ！', player.x, player.y - 35, '#4ade80', 18);
+        return;
+      }
 
-      if (currentPiece) {
-        const ghostY = getGhostY();
-        for (let r = 0; r < currentPiece.shape.length; r++) {
-          for (let c = 0; c < currentPiece.shape[r].length; c++) {
-            if (currentPiece.shape[r][c]) {
-              drawBlock(myCtx, currentPiece.x + c, ghostY + r, currentPiece.color, true);
+      player.yellowCards++;
+      sound.playWhistle();
+      referee.whistleAnimTimer = 0.7;
+      showFloatText(`🟨 ${actionName}! (${player.yellowCards}/10)`, player.x, player.y - 35, '#facc15', 20);
+
+      if (player.yellowCards >= 10 && !player.isIntruder) {
+        player.isIntruder = true;
+        stats.intruders++;
+        sound.playTackle();
+        showBigAlert('RED CARD & 乱入！', `${player.name}が退場！消火器を持って乱入！`, 'text-rose-500', 2500);
+
+        player.x = PITCH.x - 80;
+        player.y = PITCH.y + PITCH.h / 2;
+        player.vx = 0; player.vy = 0;
+        player.stunTimer = 0;
+        triggerScreenShake(14);
+      }
+      updateHUD();
+    }
+
+    // 各種アクション
+    function executePunch(player, isRemote = false) {
+      if (matchState !== 'PLAYING' || player.stunTimer > 0 || player.whiffTimer > 0 || player.cds.punch > 0) return;
+      player.cds.punch = CD_PUNCH;
+      player.actionState = 'punching';
+      sound.playPunch();
+
+      if (!isRemote && !isSoloMode) {
+        sendNet('action_event', { actorId: player.id, action: 'punch' });
+      }
+
+      const reachX = player.x + player.facingX * 38;
+      const reachY = player.y + player.facingY * 38;
+      addParticle(reachX, reachY, player.facingX * 3, player.facingY * 3, '#f59e0b', 10, 0.2);
+
+      players.forEach(target => {
+        if (target.id === player.id) return;
+        if (Math.hypot(reachX - target.x, reachY - target.y) < target.radius + 22) {
+          target.vx += player.facingX * 6.5;
+          target.vy += player.facingY * 6.5;
+          target.stunTimer = Math.max(target.stunTimer, 0.5);
+          dropGrabbed(target);
+          showFloatText('ボカッ！', target.x, target.y - 30, '#f59e0b', 20);
+          triggerScreenShake(5);
+        }
+      });
+
+      if (Math.hypot(reachX - referee.x, reachY - referee.y) < referee.radius + 22) {
+        referee.koTimer = 5.0;
+        stats.refPunches++;
+        referee.vx += player.facingX * 7;
+        referee.vy += player.facingY * 7;
+        sound.playTackle();
+        showFloatText('審判KO！5秒無法地帯！', referee.x, referee.y - 35, '#ef4444', 24);
+        triggerScreenShake(10);
+      }
+
+      setTimeout(() => { if (player.actionState === 'punching') player.actionState = null; }, 200);
+    }
+
+    function executeSlide(player, isRemote = false) {
+      if (matchState !== 'PLAYING' || player.stunTimer > 0 || player.whiffTimer > 0 || player.cds.slide > 0) return;
+      player.cds.slide = CD_SLIDE;
+      player.actionState = 'sliding';
+      sound.playSlide();
+
+      if (!isRemote && !isSoloMode) {
+        sendNet('action_event', { actorId: player.id, action: 'slide' });
+      }
+
+      player.vx = player.facingX * 12.5;
+      player.vy = player.facingY * 12.5;
+
+      const checkInterval = setInterval(() => {
+        if (player.actionState !== 'sliding') { clearInterval(checkInterval); return; }
+        addParticle(player.x, player.y + 12, -player.facingX * 2, -player.facingY * 2, '#94a3b8', 7, 0.25);
+
+        players.forEach(target => {
+          if (target.id === player.id) return;
+          if (Math.hypot(player.x - target.x, player.y - target.y) < player.radius + target.radius) {
+            target.vx += player.facingX * 5;
+            target.vy += player.facingY * 5;
+            target.slowTimer = 1.0;
+            dropGrabbed(target);
+            showFloatText('ズザッ！(1秒減速)', target.x, target.y - 25, '#38bdf8', 18);
+          }
+        });
+      }, 50);
+
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        if (player.actionState === 'sliding') player.actionState = null;
+      }, 350);
+
+      checkFoul(player, 'スライディング違反');
+    }
+
+    function executeTackle(player, isRemote = false) {
+      if (matchState !== 'PLAYING' || player.stunTimer > 0 || player.whiffTimer > 0 || player.cds.tackle > 0) return;
+      player.cds.tackle = CD_TACKLE;
+      player.actionState = 'tackling';
+      sound.playTackle();
+
+      if (!isRemote && !isSoloMode) {
+        sendNet('action_event', { actorId: player.id, action: 'tackle' });
+      }
+
+      player.vx = player.facingX * 16.5;
+      player.vy = player.facingY * 16.5;
+
+      let hitSomeone = false;
+      const chargeEnd = Date.now() + 260;
+
+      const chargeInterval = setInterval(() => {
+        addParticle(player.x, player.y, 0, 0, '#ef4444', 10, 0.25);
+
+        players.forEach(target => {
+          if (target.id === player.id) return;
+          if (Math.hypot(player.x - target.x, player.y - target.y) < player.radius + target.radius + 10) {
+            hitSomeone = true;
+            stats.tackles++;
+            target.vx = player.facingX * 16;
+            target.vy = player.facingY * 16;
+            target.stunTimer = 5.0;
+            dropGrabbed(target);
+            showFloatText('ドガァッ！！(5秒気絶)', target.x, target.y - 35, '#dc2626', 24);
+            triggerScreenShake(14);
+          }
+        });
+
+        if (Date.now() > chargeEnd || hitSomeone) {
+          clearInterval(chargeInterval);
+          player.actionState = null;
+          if (!hitSomeone) {
+            player.whiffTimer = 1.4;
+            showFloatText('大空振り！(隙大)', player.x, player.y - 28, '#94a3b8', 16);
+          }
+        }
+      }, 40);
+
+      checkFoul(player, '悪質タックル');
+    }
+
+    // 消火器（CD 18.0秒）
+    function executeExtinguisher(player, isRemote = false) {
+      if (matchState !== 'PLAYING' || !player.isIntruder || player.cds.extinguisher > 0) return;
+      player.cds.extinguisher = CD_EXTINGUISHER;
+      sound.playExtinguisher();
+      triggerScreenShake(8);
+      showFloatText('消火器大噴射！！', player.x, player.y - 35, '#ffffff', 22);
+
+      if (!isRemote && !isSoloMode) {
+        sendNet('action_event', { actorId: player.id, action: 'extinguisher' });
+      }
+
+      for (let i = 0; i < 50; i++) {
+        const spread = (Math.random() - 0.5) * 1.0;
+        const spd = 8 + Math.random() * 11;
+        const dir = player.facingAngle + spread;
+        addParticle(player.x + player.facingX * 25, player.y + player.facingY * 25, Math.cos(dir) * spd, Math.sin(dir) * spd, '#ffffff', 14 + Math.random() * 12, 0.8);
+      }
+
+      players.forEach(target => {
+        if (target.id === player.id) return;
+        const dx = target.x - player.x;
+        const dy = target.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        const dot = (dx * player.facingX + dy * player.facingY) / (dist || 1);
+        if (dist < 260 && dot > 0.3) {
+          target.vx = (dx / (dist || 1)) * 20;
+          target.vy = (dy / (dist || 1)) * 20;
+          target.stunTimer = 1.6;
+          dropGrabbed(target);
+          showFloatText('強風吹っ飛び！', target.x, target.y - 25, '#38bdf8', 20);
+        }
+      });
+
+      balls.forEach(b => {
+        const dx = b.x - player.x;
+        const dy = b.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        const dot = (dx * player.facingX + dy * player.facingY) / (dist || 1);
+        if (dist < 280 && dot > 0.3) {
+          b.vx += (dx / (dist || 1)) * 18;
+          b.vy += (dy / (dist || 1)) * 18;
+        }
+      });
+    }
+
+    /* ==========================================================================
+       7. AI & 物理ループ
+       ========================================================================== */
+    function updateBots(dt) {
+      // 審判の挙動（ソロ、またはホスト側でのみシミュレーション）
+      if (isSoloMode || isHost) {
+        if (referee.koTimer > 0) {
+          referee.koTimer -= dt;
+          referee.vx *= 0.88;
+          referee.vy *= 0.88;
+        } else {
+          if (referee.whistleAnimTimer > 0) referee.whistleAnimTimer -= dt;
+          referee.angerTimer -= dt;
+
+          const targetBall = balls[0];
+          if (targetBall) {
+            const dx = targetBall.x - referee.x;
+            const dy = targetBall.y - referee.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 100) {
+              referee.vx += (dx / dist) * 0.35;
+              referee.vy += (dy / dist) * 0.35;
+              referee.facingAngle = Math.atan2(dy, dx);
             }
           }
+
+          if (referee.angerTimer <= 0) {
+            referee.angerTimer = 6.0 + Math.random() * 5.0;
+            players.forEach(p => {
+              if (Math.hypot(referee.x - p.x, referee.y - p.y) < 65) {
+                p.stunTimer = 0.6;
+                p.vx += (p.x - referee.x) * 0.18;
+                p.vy += (p.y - referee.y) * 0.18;
+                dropGrabbed(p);
+                sound.playPunch();
+                showFloatText('審判の怒りパンチ！', p.x, p.y - 30, '#f87171', 19);
+              }
+            });
+          }
         }
 
-        for (let r = 0; r < currentPiece.shape.length; r++) {
-          for (let c = 0; c < currentPiece.shape[r].length; c++) {
-            if (currentPiece.shape[r][c]) {
-              drawBlock(myCtx, currentPiece.x + c, currentPiece.y + r, currentPiece.color);
+        referee.x += referee.vx;
+        referee.y += referee.vy;
+        referee.vx *= 0.88;
+        referee.vy *= 0.88;
+        referee.x = Math.max(PITCH.x - 50, Math.min(PITCH.x + PITCH.w + 50, referee.x));
+        referee.y = Math.max(PITCH.y - 50, Math.min(PITCH.y + PITCH.h + 50, referee.y));
+      }
+
+      // AIプレイヤーの操作
+      players.forEach(bot => {
+        if (bot.isLocal) return;
+        if (!isSoloMode && bot.netId) return; // 他の人間プレイヤーは除外
+
+        if (bot.stunTimer > 0) { bot.stunTimer -= dt; return; }
+        if (bot.whiffTimer > 0) { bot.whiffTimer -= dt; return; }
+        if (bot.slowTimer > 0) bot.slowTimer -= dt;
+        Object.keys(bot.cds).forEach(k => { if (bot.cds[k] > 0) bot.cds[k] -= dt; });
+
+        if (matchState !== 'PLAYING') return;
+
+        if (bot.isIntruder) {
+          const nearestPlayer = players.find(p => p.id !== bot.id);
+          if (nearestPlayer) {
+            const dx = nearestPlayer.x - bot.x;
+            const dy = nearestPlayer.y - bot.y;
+            bot.facingAngle = Math.atan2(dy, dx);
+            bot.facingX = Math.cos(bot.facingAngle);
+            bot.facingY = Math.sin(bot.facingAngle);
+            bot.vx += bot.facingX * 0.6;
+            bot.vy += bot.facingY * 0.6;
+            if (Math.hypot(dx, dy) < 200 && bot.cds.extinguisher <= 0) {
+              executeExtinguisher(bot);
             }
+          }
+          return;
+        }
+
+        const ball = balls[0];
+        if (ball) {
+          const dx = ball.x - bot.x;
+          const dy = ball.y - bot.y;
+          bot.facingAngle = Math.atan2(dy, dx);
+          bot.facingX = Math.cos(bot.facingAngle);
+          bot.facingY = Math.sin(bot.facingAngle);
+
+          const spd = bot.slowTimer > 0 ? 0.35 : 0.65;
+          bot.vx += bot.facingX * spd;
+          bot.vy += bot.facingY * spd;
+
+          players.forEach(enemy => {
+            if (enemy.id !== bot.id && enemy.team !== bot.team) {
+              const edist = Math.hypot(enemy.x - bot.x, enemy.y - bot.y);
+              if (edist < 48 && bot.cds.punch <= 0) {
+                executePunch(bot);
+              } else if (edist < 140 && edist > 80 && bot.cds.tackle <= 0 && (referee.koTimer > 0 || Math.random() < 0.2)) {
+                executeTackle(bot);
+              }
+            }
+          });
+        }
+      });
+    }
+
+    function updatePhysics(dt) {
+      // プレイヤー物理
+      players.forEach(p => {
+        const speed = Math.hypot(p.vx, p.vy);
+        if (speed > 0.2) p.animLegPhase += speed * 0.12;
+
+        if (p.stunTimer > 0) {
+          p.stunTimer -= dt;
+          p.vx *= 0.84;
+          p.vy *= 0.84;
+        } else if (p.whiffTimer > 0) {
+          p.whiffTimer -= dt;
+          p.vx *= 0.84;
+          p.vy *= 0.84;
+        } else {
+          if (p.isLocal && matchState === 'PLAYING') {
+            let mx = 0, my = 0;
+            if (keys.KeyW || keys.ArrowUp) my -= 1;
+            if (keys.KeyS || keys.ArrowDown) my += 1;
+            if (keys.KeyA || keys.ArrowLeft) mx -= 1;
+            if (keys.KeyD || keys.ArrowRight) mx += 1;
+
+            if (mx !== 0 || my !== 0) {
+              const len = Math.hypot(mx, my);
+              p.facingX = mx / len;
+              p.facingY = my / len;
+              p.facingAngle = Math.atan2(p.facingY, p.facingX);
+
+              let accel = p.slowTimer > 0 ? 0.45 : 0.88;
+              if (p.grabbedObject) accel *= 0.65;
+
+              p.vx += p.facingX * accel;
+              p.vy += p.facingY * accel;
+            }
+
+            updatePlayerGrab(p);
+          }
+
+          if (p.slowTimer > 0) p.slowTimer -= dt;
+          Object.keys(p.cds).forEach(k => { if (p.cds[k] > 0) p.cds[k] -= dt; });
+        }
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.87;
+        p.vy *= 0.87;
+
+        p.x = Math.max(80, Math.min(WORLD_WIDTH - 80, p.x));
+        p.y = Math.max(60, Math.min(WORLD_HEIGHT - 60, p.y));
+
+        // 障害物との衝突
+        obstacles.forEach(obs => {
+          if (obs.isGrabbedBy === p.id) return;
+          if (obs.radius) {
+            if (Math.hypot(p.x - obs.x, p.y - obs.y) < p.radius + obs.radius) {
+              const a = Math.atan2(p.y - obs.y, p.x - obs.x);
+              p.x = obs.x + Math.cos(a) * (p.radius + obs.radius);
+              p.y = obs.y + Math.sin(a) * (p.radius + obs.radius);
+            }
+          } else if (obs.w) {
+            if (p.x > obs.x - p.radius && p.x < obs.x + obs.w + p.radius &&
+                p.y > obs.y - p.radius && p.y < obs.y + obs.h + p.radius) {
+              p.x -= p.vx * 1.2;
+              p.y -= p.vy * 1.2;
+              p.vx = 0; p.vy = 0;
+            }
+          }
+        });
+      });
+
+      // プレイヤー同士の押し出し
+      for (let i = 0; i < players.length; i++) {
+        for (let j = i + 1; j < players.length; j++) {
+          const pA = players[i];
+          const pB = players[j];
+          const dx = pB.x - pA.x;
+          const dy = pB.y - pA.y;
+          const dist = Math.hypot(dx, dy);
+          const minDist = pA.radius + pB.radius;
+          if (dist < minDist && dist > 0) {
+            const overlap = minDist - dist;
+            const nx = dx / dist;
+            const ny = dy / dist;
+            pA.x -= nx * overlap * 0.5;
+            pA.y -= ny * overlap * 0.5;
+            pB.x += nx * overlap * 0.5;
+            pB.y += ny * overlap * 0.5;
           }
         }
       }
-    }
 
-    function renderEnemyBoard(grid, piece, ghostY) {
-      renderGrid(enemyCtx, grid);
+      // ボール物理 ＆ ゴール判定（ホストまたはソロ時のみ判定）
+      if (isSoloMode || isHost) {
+        balls.forEach((b) => {
+          b.x += b.vx;
+          b.y += b.vy;
+          b.vx *= 0.986;
+          b.vy *= 0.986;
 
-      if (piece) {
-        if (ghostY !== undefined) {
-          for (let r = 0; r < piece.shape.length; r++) {
-            for (let c = 0; c < piece.shape[r].length; c++) {
-              if (piece.shape[r][c]) {
-                drawBlock(enemyCtx, piece.x + c, ghostY + r, piece.color, true);
+          // PLAYING中のみゴール判定（連打バグの完全防止）
+          if (matchState === 'PLAYING') {
+            // 左ゴール判定（赤組の得点）
+            if (b.x - b.radius < leftGoal.x + leftGoal.w && b.x + b.radius > leftGoal.x) {
+              if (b.y > leftGoal.y && b.y < leftGoal.y + leftGoal.h) {
+                score.red++;
+                matchState = 'GOAL_PAUSE';
+                b.vx = 0; b.vy = 0;
+                sound.playGoalSiren();
+                triggerScreenShake(20);
+                setTimeout(() => startRoundReset('red'), 800);
+                return;
+              }
+            }
+
+            // 右ゴール判定（青組の得点）
+            if (b.x + b.radius > rightGoal.x && b.x - b.radius < rightGoal.x + rightGoal.w) {
+              if (b.y > rightGoal.y && b.y < rightGoal.y + rightGoal.h) {
+                score.blue++;
+                matchState = 'GOAL_PAUSE';
+                b.vx = 0; b.vy = 0;
+                sound.playGoalSiren();
+                triggerScreenShake(20);
+                setTimeout(() => startRoundReset('blue'), 800);
+                return;
               }
             }
           }
-        }
 
-        for (let r = 0; r < piece.shape.length; r++) {
-          for (let c = 0; c < piece.shape[r].length; c++) {
-            if (piece.shape[r][c]) {
-              drawBlock(enemyCtx, piece.x + c, piece.y + r, piece.color);
+          // 外壁バウンド
+          if (b.x - b.radius < PITCH.x - 30) { b.x = PITCH.x - 30 + b.radius; b.vx *= -0.85; }
+          if (b.x + b.radius > PITCH.x + PITCH.w + 30) { b.x = PITCH.x + PITCH.w + 30 - b.radius; b.vx *= -0.85; }
+          if (b.y - b.radius < PITCH.y - 20) { b.y = PITCH.y - 20 + b.radius; b.vy *= -0.85; }
+          if (b.y + b.radius > PITCH.y + PITCH.h + 20) { b.y = PITCH.y + PITCH.h + 20 - b.radius; b.vy *= -0.85; }
+
+          // ボールとプレイヤーのキック判定
+          players.forEach(p => {
+            const d = Math.hypot(b.x - p.x, b.y - p.y);
+            if (d < b.radius + p.radius) {
+              const angle = Math.atan2(b.y - p.y, b.x - p.x);
+              const kickPower = Math.hypot(p.vx, p.vy) + 6.2;
+              b.vx = Math.cos(angle) * kickPower;
+              b.vy = Math.sin(angle) * kickPower;
+              sound.playKick();
+              addParticle(b.x, b.y, b.vx * 0.3, b.vy * 0.3, '#ffffff', 6, 0.2);
             }
-          }
+          });
+
+          // ボールと備品の衝突
+          obstacles.forEach(obs => {
+            if (obs.w) {
+              if (b.x > obs.x && b.x < obs.x + obs.w && b.y > obs.y && b.y < obs.y + obs.h) {
+                b.vx *= -0.9; b.vy *= -0.9;
+                sound.playKick();
+              }
+            }
+          });
+        });
+      }
+
+      // カウントダウン処理
+      if (matchState === 'COUNTDOWN') {
+        countdownTimer -= dt;
+        const curVal = Math.ceil(countdownTimer);
+        if (curVal !== countdownValue && curVal > 0) {
+          countdownValue = curVal;
+          sound.playCountdownBeep(false);
+          showBigAlert(String(countdownValue), 'まもなく開始！', 'text-yellow-400', 0);
+        } else if (countdownTimer <= 0) {
+          matchState = 'PLAYING';
+          sound.playCountdownBeep(true);
+          showBigAlert('START!!', '試合開始！', 'text-emerald-400', 800);
         }
       }
-    }
 
-    function drawPreview(ctx, type) {
-      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      if (!type) return;
-
-      const proto = PIECE_DEFS[type];
-      const shape = proto.shape;
-      const size = 12;
-      const offsetX = (ctx.canvas.width - shape[0].length * size) / 2;
-      const offsetY = (ctx.canvas.height - shape.length * size) / 2;
-
-      for (let r = 0; r < shape.length; r++) {
-        for (let c = 0; c < shape[r].length; c++) {
-          if (shape[r][c]) {
-            ctx.fillStyle = proto.color;
-            ctx.fillRect(offsetX + c * size, offsetY + r * size, size - 1, size - 1);
-          }
-        }
+      // カメラ追従
+      const pLocal = players.find(p => p.id === localPlayerId) || players[0];
+      if (pLocal) {
+        camera.targetX = pLocal.x - camera.w / 2;
+        camera.targetY = pLocal.y - camera.h / 2;
+        camera.x += (camera.targetX - camera.x) * 0.12;
+        camera.y += (camera.targetY - camera.y) * 0.12;
+        camera.x = Math.max(0, Math.min(WORLD_WIDTH - camera.w, camera.x));
+        camera.y = Math.max(0, Math.min(WORLD_HEIGHT - camera.h, camera.y));
       }
+
+      // パーティクル＆浮遊テキスト
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pt = particles[i];
+        pt.x += pt.vx; pt.y += pt.vy; pt.life -= dt;
+        if (pt.life <= 0) particles.splice(i, 1);
+      }
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ft.y += ft.vy; ft.alpha -= dt * 0.9;
+        if (ft.alpha <= 0) floatingTexts.splice(i, 1);
+      }
+      if (screenShake > 0) screenShake *= 0.88;
     }
 
-    function sendBoardSync() {
-      sendData('board_sync', {
-        grid: myGrid,
-        piece: currentPiece ? {
-          shape: currentPiece.shape,
-          color: currentPiece.color,
-          x: currentPiece.x,
-          y: currentPiece.y
-        } : null,
-        ghostY: getGhostY(),
-        lines: linesCleared,
-        score: score,
-        pendingGarbage: pendingGarbage
+    /* ==========================================================================
+       8. 描画
+       ========================================================================== */
+    function drawHumanoid(ctx, p) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+
+      if (p.stunTimer > 0) {
+        ctx.fillStyle = 'rgba(234, 179, 8, 0.25)';
+        ctx.beginPath();
+        ctx.arc(0, 0, p.radius + 12, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.beginPath();
+      ctx.ellipse(0, 8, p.radius * 0.9, p.radius * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.rotate(p.facingAngle - Math.PI / 2);
+
+      const legBob = Math.sin(p.animLegPhase) * 6;
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.ellipse(-8 + legBob, -14, 5, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(8 - legBob, -14, 5, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const jerseyColor = p.isIntruder ? '#991b1b' : (p.team === 'blue' ? '#2563eb' : '#dc2626');
+      ctx.fillStyle = jerseyColor;
+      ctx.beginPath();
+      ctx.roundRect(-16, -10, 32, 22, 6);
+      ctx.fill();
+      ctx.strokeStyle = p.isLocal ? '#facc15' : '#0f172a';
+      ctx.lineWidth = p.isLocal ? 3 : 2;
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'black 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.isIntruder ? '🧯' : p.number, 0, 0);
+
+      let lHandX = -18, rHandX = 18, handY = 8;
+      if (p.actionState === 'punching') rHandX += 14;
+      if (p.grabbedObject) handY += 12;
+
+      ctx.fillStyle = '#fbcfe8';
+      ctx.beginPath();
+      ctx.arc(lHandX, handY, 5, 0, Math.PI * 2);
+      ctx.arc(rHandX, handY, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#fbcfe8';
+      ctx.beginPath();
+      ctx.arc(0, 2, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = p.hairColor;
+      ctx.beginPath();
+      ctx.arc(0, -1, 12, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+
+      // 頭上ステータス表示
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.textAlign = 'center';
+
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillStyle = p.isLocal ? '#fde047' : '#ffffff';
+      ctx.fillText(p.name, 0, -32);
+
+      if (p.stunTimer > 0) {
+        const starTime = Date.now() * 0.006;
+        for (let i = 0; i < 3; i++) {
+          const a = starTime + (i * Math.PI * 2) / 3;
+          const sx = Math.cos(a) * 22;
+          const sy = Math.sin(a) * 9 - 42;
+          ctx.fillStyle = '#fbbf24';
+          ctx.font = 'bold 13px sans-serif';
+          ctx.fillText('★', sx, sy);
+        }
+      } else if (p.whiffTimer > 0) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText('大隙！', 0, -44);
+      }
+
+      if (p.yellowCards > 0 && !p.isIntruder) {
+        ctx.fillStyle = '#eab308';
+        ctx.fillRect(14, -28, 12, 15);
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillText(p.yellowCards, 20, -16);
+      }
+      ctx.restore();
+    }
+
+    function renderMain() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+
+      if (screenShake > 0) {
+        ctx.translate((Math.random() - 0.5) * screenShake * 2, (Math.random() - 0.5) * screenShake * 2);
+      }
+
+      ctx.translate(-camera.x, -camera.y);
+
+      // フィールド
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+      ctx.fillStyle = '#991b1b';
+      ctx.fillRect(PITCH.x - 70, PITCH.y - 60, PITCH.w + 140, PITCH.h + 120);
+
+      ctx.fillStyle = '#15803d';
+      ctx.fillRect(PITCH.x, PITCH.y, PITCH.w, PITCH.h);
+
+      ctx.fillStyle = '#166534';
+      for (let x = PITCH.x; x < PITCH.x + PITCH.w; x += 160) {
+        ctx.fillRect(x, PITCH.y, 80, PITCH.h);
+      }
+
+      // 白線
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(PITCH.x, PITCH.y, PITCH.w, PITCH.h);
+
+      ctx.beginPath();
+      ctx.moveTo(PITCH.x + PITCH.w / 2, PITCH.y);
+      ctx.lineTo(PITCH.x + PITCH.w / 2, PITCH.y + PITCH.h);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(PITCH.x + PITCH.w / 2, PITCH.y + PITCH.h / 2, 130, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeRect(PITCH.x, PITCH.y + PITCH.h / 2 - 200, 220, 400);
+      ctx.strokeRect(PITCH.x + PITCH.w - 220, PITCH.y + PITCH.h / 2 - 200, 220, 400);
+
+      // ゴール
+      [leftGoal, rightGoal].forEach(g => {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.fillRect(g.x, g.y, g.w, g.h);
+        ctx.strokeStyle = g.team === 'blue' ? '#38bdf8' : '#fb7185';
+        ctx.lineWidth = 5;
+        ctx.strokeRect(g.x, g.y, g.w, g.h);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(g.team === 'blue' ? g.x + g.w : g.x, g.y, 8, 0, Math.PI * 2);
+        ctx.arc(g.team === 'blue' ? g.x + g.w : g.x, g.y + g.h, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (g.isGrabbedBy) {
+          ctx.fillStyle = '#fef08a';
+          ctx.font = 'bold 12px sans-serif';
+          ctx.fillText('🚚 ゴール移動中！', g.x + g.w / 2, g.y - 10);
+        }
       });
+
+      // 備品
+      obstacles.forEach(obs => {
+        if (obs.type === 'bench') {
+          ctx.fillStyle = '#78350f';
+          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+          ctx.strokeStyle = '#451a03';
+          ctx.lineWidth = 2.5;
+          ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+        } else if (obs.type === 'cone') {
+          ctx.fillStyle = '#ea580c';
+          ctx.beginPath();
+          ctx.arc(obs.x, obs.y, obs.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(obs.x, obs.y, obs.radius * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (obs.type === 'barricade') {
+          ctx.fillStyle = '#eab308';
+          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+          ctx.fillStyle = '#000000';
+          for (let bx = obs.x; bx < obs.x + obs.w; bx += 20) {
+            ctx.fillRect(bx, obs.y, 10, obs.h);
+          }
+        } else if (obs.type === 'cart') {
+          ctx.fillStyle = '#64748b';
+          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+          ctx.strokeStyle = '#334155';
+          ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '14px sans-serif';
+          ctx.fillText('⚽×Cart', obs.x + 8, obs.y + 26);
+        }
+      });
+
+      // 審判
+      ctx.save();
+      ctx.translate(referee.x, referee.y);
+      ctx.fillStyle = referee.koTimer > 0 ? '#475569' : '#ffffff';
+      ctx.beginPath();
+      ctx.arc(0, 0, referee.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(-7, -15, 4, 30);
+      ctx.fillRect(3, -15, 4, 30);
+
+      if (referee.koTimer > 0) {
+        ctx.fillStyle = '#facc15';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('💫 KO', 0, -26);
+      } else if (referee.whistleAnimTimer > 0) {
+        ctx.fillStyle = '#ef4444';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('笛🟨', 0, -26);
+      }
+      ctx.restore();
+
+      // プレイヤー描画
+      players.forEach(p => drawHumanoid(ctx, p));
+
+      // ボール描画
+      balls.forEach(b => {
+        ctx.save();
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // パーティクル
+      particles.forEach(pt => {
+        ctx.fillStyle = pt.color;
+        ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+      });
+
+      // 浮遊テキスト
+      floatingTexts.forEach(ft => {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, ft.alpha);
+        ctx.fillStyle = ft.color;
+        ctx.font = `bold ${ft.size}px 'Mochiy Pop One', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 3;
+        ctx.strokeText(ft.text, ft.x, ft.y);
+        ctx.fillText(ft.text, ft.x, ft.y);
+        ctx.restore();
+      });
+
+      ctx.restore();
+    }
+
+    function renderMinimap() {
+      const mw = minimapCanvas.width;
+      const mh = minimapCanvas.height;
+      const scaleX = mw / WORLD_WIDTH;
+      const scaleY = mh / WORLD_HEIGHT;
+
+      minimapCtx.clearRect(0, 0, mw, mh);
+      minimapCtx.fillStyle = '#14532d';
+      minimapCtx.fillRect(PITCH.x * scaleX, PITCH.y * scaleY, PITCH.w * scaleX, PITCH.h * scaleY);
+      minimapCtx.strokeStyle = '#ffffff';
+      minimapCtx.lineWidth = 1;
+      minimapCtx.strokeRect(PITCH.x * scaleX, PITCH.y * scaleY, PITCH.w * scaleX, PITCH.h * scaleY);
+
+      minimapCtx.fillStyle = '#38bdf8';
+      minimapCtx.fillRect(leftGoal.x * scaleX, leftGoal.y * scaleY, 4, leftGoal.h * scaleY);
+      minimapCtx.fillStyle = '#fb7185';
+      minimapCtx.fillRect(rightGoal.x * scaleX, rightGoal.y * scaleY, 4, rightGoal.h * scaleY);
+
+      minimapCtx.fillStyle = '#f59e0b';
+      obstacles.forEach(o => {
+        minimapCtx.fillRect(o.x * scaleX, o.y * scaleY, 3, 3);
+      });
+
+      minimapCtx.fillStyle = referee.koTimer > 0 ? '#94a3b8' : '#ffffff';
+      minimapCtx.beginPath();
+      minimapCtx.arc(referee.x * scaleX, referee.y * scaleY, 3, 0, Math.PI * 2);
+      minimapCtx.fill();
+
+      players.forEach(p => {
+        minimapCtx.fillStyle = p.team === 'blue' ? '#38bdf8' : '#f43f5e';
+        minimapCtx.beginPath();
+        minimapCtx.arc(p.x * scaleX, p.y * scaleY, p.isLocal ? 4.5 : 3, 0, Math.PI * 2);
+        minimapCtx.fill();
+        if (p.isLocal) {
+          minimapCtx.strokeStyle = '#facc15';
+          minimapCtx.stroke();
+        }
+      });
+
+      minimapCtx.fillStyle = '#fef08a';
+      balls.forEach(b => {
+        minimapCtx.beginPath();
+        minimapCtx.arc(b.x * scaleX, b.y * scaleY, 3, 0, Math.PI * 2);
+        minimapCtx.fill();
+      });
+
+      minimapCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      minimapCtx.strokeRect(camera.x * scaleX, camera.y * scaleY, camera.w * scaleX, camera.h * scaleY);
     }
 
     /* ==========================================================================
-       8. ゲームループ & 入力処理
+       9. HUD ＆ イベント設定
        ========================================================================== */
-    function updateInputs(now) {
-      if (!isPlaying || isGameOver) return;
+    function triggerScreenShake(amount) {
+      screenShake = Math.max(screenShake, amount);
+    }
 
-      if (keyStates['ArrowLeft'] || keyStates['KeyA']) {
-        if (leftHoldTime === 0) {
-          leftHoldTime = now;
+    function addParticle(x, y, vx, vy, color, size, life) {
+      particles.push({ x, y, vx, vy, color, size, life, maxLife: life });
+    }
+
+    function showFloatText(text, x, y, color = '#facc15', size = 18) {
+      floatingTexts.push({ text, x, y, vy: -1.2, alpha: 1.0, color, size });
+    }
+
+    let alertTimeout = null;
+    function showBigAlert(title, subtitle, colorClass = 'text-yellow-300', duration = 1200) {
+      const box = document.getElementById('big-alert-box');
+      const titleEl = document.getElementById('big-alert-title');
+      const subEl = document.getElementById('big-alert-subtitle');
+      titleEl.className = `game-font text-4xl md:text-6xl ${colorClass} drop-shadow`;
+      titleEl.textContent = title;
+      subEl.textContent = subtitle;
+      box.classList.remove('opacity-0', 'scale-90');
+      box.classList.add('opacity-100', 'scale-100');
+      clearTimeout(alertTimeout);
+      if (duration > 0) {
+        alertTimeout = setTimeout(() => {
+          box.classList.remove('opacity-100', 'scale-100');
+          box.classList.add('opacity-0', 'scale-90');
+        }, duration);
+      }
+    }
+
+    function updateHUD() {
+      document.getElementById('score-blue').textContent = score.blue;
+      document.getElementById('score-red').textContent = score.red;
+
+      const p1 = players.find(p => p.id === localPlayerId) || players[0];
+      if (p1) {
+        document.getElementById('hud-yellow-count').textContent = `${p1.yellowCards}/10`;
+        const intruderEl = document.getElementById('hud-intruder-badge');
+        const extBtn = document.getElementById('btn-extinguisher');
+
+        if (p1.isIntruder) {
+          intruderEl.classList.remove('hidden');
+          extBtn.classList.remove('opacity-40');
         } else {
-          const elapsed = now - leftHoldTime;
-          if (elapsed > DAS) {
-            const steps = Math.floor((elapsed - DAS) / ARR);
-            if (steps > 0) {
-              movePiece(-1, 0);
-              leftHoldTime = now - DAS;
-            }
-          }
+          intruderEl.classList.add('hidden');
+          extBtn.classList.add('opacity-40');
         }
+
+        const carryTag = document.getElementById('hud-carrying-tag');
+        if (p1.grabbedObject) carryTag.classList.remove('hidden');
+        else carryTag.classList.add('hidden');
+      }
+
+      const forceEndBtn = document.getElementById('btn-force-end-match');
+      if (isHost && (matchState === 'PLAYING' || matchState === 'COUNTDOWN')) {
+        forceEndBtn.classList.remove('hidden');
       } else {
-        leftHoldTime = 0;
+        forceEndBtn.classList.add('hidden');
       }
 
-      if (keyStates['ArrowRight'] || keyStates['KeyD']) {
-        if (rightHoldTime === 0) {
-          rightHoldTime = now;
-        } else {
-          const elapsed = now - rightHoldTime;
-          if (elapsed > DAS) {
-            const steps = Math.floor((elapsed - DAS) / ARR);
-            if (steps > 0) {
-              movePiece(1, 0);
-              rightHoldTime = now - DAS;
-            }
-          }
-        }
+      const goalsBadge = document.getElementById('target-goals-badge');
+      if (isTargetGoalsEnabled) {
+        goalsBadge.classList.remove('hidden');
+        goalsBadge.textContent = `目標: ${targetGoals}点先取`;
       } else {
-        rightHoldTime = 0;
+        goalsBadge.classList.add('hidden');
       }
 
-      if (keyStates['ArrowDown'] || keyStates['KeyS']) {
-        if (now - lastSoftDropTick >= SOFT_DROP_INTERVAL) {
-          if (movePiece(0, 1)) {
-            score += 1;
-            scoreDisplay.innerText = score;
-          }
-          lastSoftDropTick = now;
-        }
-      }
-    }
-
-    function gameLoop(timestamp) {
-      if (!isPlaying) return;
-
-      updateInputs(timestamp);
-
-      if (timestamp - lastDropTime > dropInterval) {
-        if (!movePiece(0, 1)) {
-          lockPiece();
-        }
-        lastDropTime = timestamp;
+      if (!isTimeEnabled) {
+        document.getElementById('match-timer').textContent = '無制限';
       }
 
-      animationFrameId = requestAnimationFrame(gameLoop);
+      const refBanner = document.getElementById('ref-status-banner');
+      if (referee.koTimer > 0) refBanner.classList.remove('hidden');
+      else refBanner.classList.add('hidden');
     }
 
-    function startCountdown() {
-      myGrid = createEmptyGrid();
-      currentPiece = null;
-      holdPieceType = null;
-      nextPieceType = null;
-      pieceBag = [];
-      score = 0;
-      linesCleared = 0;
-      pendingGarbage = 0;
-      backToBack = false;
-      isGameOver = false;
+    function updateCooldownGauges() {
+      const p1 = players.find(p => p.id === localPlayerId) || players[0];
+      if (!p1) return;
 
-      linesDisplay.innerText = '0';
-      scoreDisplay.innerText = '0';
-      myGarbageBar.style.height = '0%';
-      drawPreview(holdCtx, null);
-      drawPreview(nextCtx, null);
-      render();
+      const setScale = (id, cur, max) => {
+        const el = document.getElementById(id);
+        if (el) el.style.transform = `scaleY(${Math.max(0, Math.min(1, cur / max))})`;
+      };
 
-      myOverlay.classList.add('active');
-      rematchBtn.style.display = 'none';
-
-      let count = 3;
-      overlayTitle.className = 'overlay-title countdown';
-      overlayTitle.innerText = count;
-
-      const timer = setInterval(() => {
-        count--;
-        if (count > 0) {
-          overlayTitle.innerText = count;
-        } else if (count === 0) {
-          overlayTitle.innerText = 'GO!';
-        } else {
-          clearInterval(timer);
-          myOverlay.classList.remove('active');
-          isPlaying = true;
-          spawnPiece();
-          lastDropTime = performance.now();
-          lastSoftDropTick = performance.now();
-          animationFrameId = requestAnimationFrame(gameLoop);
-        }
-      }, 800);
+      setScale('cd-punch', p1.cds.punch, CD_PUNCH);
+      setScale('cd-slide', p1.cds.slide, CD_SLIDE);
+      setScale('cd-tackle', p1.cds.tackle, CD_TACKLE);
+      setScale('cd-extinguisher', p1.cds.extinguisher, CD_EXTINGUISHER);
     }
 
-    function triggerGameOver(isWin) {
-      isPlaying = false;
-      isGameOver = true;
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
-
-      myOverlay.classList.add('active');
-      rematchBtn.style.display = 'block';
-
-      if (isWin) {
-        overlayTitle.className = 'overlay-title win';
-        overlayTitle.innerText = 'YOU WIN!';
-      } else {
-        overlayTitle.className = 'overlay-title lose';
-        overlayTitle.innerText = 'YOU LOSE';
-        sendData('gameover');
-      }
+    function resizeGame() {
+      const container = document.getElementById('game-canvas-container');
+      if (!container) return;
+      canvas.width = container.clientWidth || window.innerWidth;
+      canvas.height = container.clientHeight || (window.innerHeight - 120);
+      camera.w = canvas.width;
+      camera.h = canvas.height;
     }
+    window.addEventListener('resize', resizeGame);
 
-    /* ==========================================================================
-       9. キーイベント
-       ========================================================================== */
     window.addEventListener('keydown', (e) => {
-      if (document.activeElement === targetIdInput) return;
+      sound.init();
+      if (keys.hasOwnProperty(e.code)) keys[e.code] = true;
 
-      keyStates[e.code] = true;
+      const p1 = players.find(p => p.id === localPlayerId) || players[0];
+      if (!p1) return;
 
-      if (!isPlaying || isGameOver) return;
-
-      switch (e.code) {
-        case 'ArrowLeft':
-        case 'KeyA':
-          if (!e.repeat) movePiece(-1, 0);
-          e.preventDefault();
-          break;
-        case 'ArrowRight':
-        case 'KeyD':
-          if (!e.repeat) movePiece(1, 0);
-          e.preventDefault();
-          break;
-        case 'ArrowDown':
-        case 'KeyS':
-          if (!e.repeat) {
-            if (movePiece(0, 1)) {
-              score += 1;
-              scoreDisplay.innerText = score;
-            }
-            lastSoftDropTick = performance.now();
-          }
-          e.preventDefault();
-          break;
-        case 'KeyZ':
-          if (!e.repeat) rotatePiece('CCW');
-          e.preventDefault();
-          break;
-        case 'KeyX':
-        case 'ArrowUp':
-        case 'KeyW':
-          if (!e.repeat) rotatePiece('CW');
-          e.preventDefault();
-          break;
-        case 'Space':
-          if (!e.repeat) hardDrop();
-          e.preventDefault();
-          break;
-        case 'KeyC':
-        case 'ShiftLeft':
-        case 'ShiftRight':
-          if (!e.repeat) holdPiece();
-          e.preventDefault();
-          break;
+      if (e.code === 'KeyZ') executePunch(p1);
+      if (e.code === 'KeyX') executeSlide(p1);
+      if (e.code === 'KeyC') executeTackle(p1);
+      if (e.code === 'KeyV') {
+        isGrabToggled = !isGrabToggled;
+        if (!isGrabToggled) dropGrabbed(p1);
+      }
+      if (e.code === 'Space') {
+        e.preventDefault();
+        executeExtinguisher(p1);
       }
     });
 
     window.addEventListener('keyup', (e) => {
-      keyStates[e.code] = false;
+      if (keys.hasOwnProperty(e.code)) keys[e.code] = false;
     });
 
-    connectBtn.addEventListener('click', () => {
-      const targetId = targetIdInput.value.trim();
-      connectToRoom(targetId);
-    });
+    function setupControls() {
+      const getP = () => players.find(p => p.id === localPlayerId) || players[0];
 
-    targetIdInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        connectBtn.click();
+      const bindAction = (id, fn) => {
+        const el = document.getElementById(id);
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); sound.init(); fn(getP()); }, { passive: false });
+        el.addEventListener('click', () => { sound.init(); fn(getP()); });
+      };
+
+      bindAction('btn-punch', p => executePunch(p));
+      bindAction('btn-slide', p => executeSlide(p));
+      bindAction('btn-tackle', p => executeTackle(p));
+      bindAction('btn-extinguisher', p => executeExtinguisher(p));
+
+      const grabBtn = document.getElementById('btn-grab');
+      const toggleGrab = (e) => {
+        if (e) e.preventDefault();
+        sound.init();
+        const p = getP();
+        isGrabToggled = !isGrabToggled;
+        keys.KeyV = isGrabToggled;
+        if (!isGrabToggled) dropGrabbed(p);
+      };
+      grabBtn.addEventListener('touchstart', toggleGrab, { passive: false });
+      grabBtn.addEventListener('click', toggleGrab);
+
+      document.getElementById('btn-force-end-match').addEventListener('click', () => {
+        if (isHost && (matchState === 'PLAYING' || matchState === 'COUNTDOWN')) {
+          sound.playWhistle();
+          triggerMatchEnd('host_forced');
+        }
+      });
+
+      document.getElementById('btn-sound-toggle').addEventListener('click', () => {
+        sound.enabled = !sound.enabled;
+        const icon = document.getElementById('sound-icon');
+        icon.className = sound.enabled ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark text-slate-500';
+      });
+    }
+
+    function showScreen(name) {
+      document.getElementById('screen-title').classList.add('hidden');
+      document.getElementById('screen-lobby').classList.add('hidden');
+      document.getElementById('screen-result').classList.add('hidden');
+
+      if (name === 'TITLE') document.getElementById('screen-title').classList.remove('hidden');
+      if (name === 'LOBBY') document.getElementById('screen-lobby').classList.remove('hidden');
+      if (name === 'RESULT') document.getElementById('screen-result').classList.remove('hidden');
+    }
+
+    function renderLobbyRoster() {
+      const blueList = document.getElementById('lobby-team-blue-list');
+      const redList = document.getElementById('lobby-team-red-list');
+      blueList.innerHTML = '';
+      redList.innerHTML = '';
+
+      players.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800';
+        item.innerHTML = `
+          <span class="font-bold ${p.id === localPlayerId ? 'text-yellow-400' : 'text-slate-200'}">
+            ${p.name} ${p.id === localPlayerId ? '(あなた)' : (p.netId ? '(オンライン)' : '(AI)')}
+          </span>
+          <span class="text-[10px] text-slate-400 font-mono">No.${p.number}</span>
+        `;
+        if (p.team === 'blue') blueList.appendChild(item);
+        else redList.appendChild(item);
+      });
+    }
+
+    function setupLobbyAndFlow() {
+      const p1 = players[0];
+
+      const chkTime = document.getElementById('chk-enable-time');
+      const chkGoals = document.getElementById('chk-enable-goals');
+      const timeSelect = document.getElementById('lobby-time-select');
+      const goalsSelect = document.getElementById('lobby-target-goals-select');
+
+      chkTime.addEventListener('change', () => {
+        if (!chkTime.checked && !chkGoals.checked) {
+          chkGoals.checked = true;
+          goalsSelect.disabled = false;
+          goalsSelect.classList.remove('opacity-50');
+        }
+        timeSelect.disabled = !chkTime.checked;
+        if (chkTime.checked) timeSelect.classList.remove('opacity-50');
+        else timeSelect.classList.add('opacity-50');
+      });
+
+      chkGoals.addEventListener('change', () => {
+        if (!chkGoals.checked && !chkTime.checked) {
+          chkTime.checked = true;
+          timeSelect.disabled = false;
+          timeSelect.classList.remove('opacity-50');
+        }
+        goalsSelect.disabled = !chkGoals.checked;
+        if (chkGoals.checked) goalsSelect.classList.remove('opacity-50');
+        else goalsSelect.classList.add('opacity-50');
+      });
+
+      // 1. ソロモード開始
+      document.getElementById('btn-start-solo').addEventListener('click', () => {
+        resetMatchCompletely();
+        p1.name = document.getElementById('title-player-name').value || 'エースストライカー';
+        isSoloMode = true;
+        isHost = true;
+        isTimeEnabled = true;
+        isTargetGoalsEnabled = false;
+        matchTimeSeconds = 180;
+        initialMatchTime = 180;
+        maxBallsLimit = 3;
+
+        showScreen('IN_GAME');
+        startRoundReset();
+      });
+
+      // 2. ルーム作成
+      document.getElementById('btn-create-lobby').addEventListener('click', () => {
+        resetMatchCompletely();
+        p1.name = document.getElementById('title-player-name').value || 'エースストライカー';
+        isSoloMode = false;
+        isHost = true;
+        roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+        document.getElementById('lobby-code-display').textContent = roomCode;
+        document.getElementById('lobby-host-indicator').classList.remove('hidden');
+        document.getElementById('lobby-host-controls').classList.remove('hidden');
+
+        initNetwork();
+        renderLobbyRoster();
+        showScreen('LOBBY');
+      });
+
+      // 3. ルーム参加
+      document.getElementById('btn-join-lobby').addEventListener('click', () => {
+        const code = document.getElementById('input-join-code').value.trim();
+        if (code) {
+          joinLobbyWithCode(code);
+        }
+      });
+
+      function joinLobbyWithCode(code) {
+        resetMatchCompletely();
+        p1.name = document.getElementById('title-player-name').value || '参加者';
+        isSoloMode = false;
+        isHost = false;
+        roomCode = code;
+        document.getElementById('lobby-code-display').textContent = roomCode;
+        document.getElementById('lobby-host-indicator').classList.add('hidden');
+        document.getElementById('lobby-host-controls').classList.add('hidden');
+
+        initNetwork();
+        // 参加申請
+        setTimeout(() => {
+          sendNet('join_request', { name: p1.name, team: 'red' });
+        }, 500);
+
+        renderLobbyRoster();
+        showScreen('LOBBY');
       }
-    });
 
-    startGameBtn.addEventListener('click', () => {
-      sendData('start_countdown');
-      startCountdown();
-    });
-
-    rematchBtn.addEventListener('click', () => {
-      sendData('rematch');
-      startCountdown();
-    });
-
-    copyIdBtn.addEventListener('click', () => {
-      if (!myId) return;
-      navigator.clipboard.writeText(myId).then(() => {
-        copyIdBtn.innerText = '完了!';
-        setTimeout(() => { copyIdBtn.innerText = 'コピー'; }, 1500);
+      // 4. チーム変更
+      document.getElementById('btn-join-blue').addEventListener('click', () => {
+        const lp = players.find(p => p.id === localPlayerId);
+        if (lp) lp.team = 'blue';
+        if (isHost) broadcastLobbyState();
+        else sendNet('join_request', { name: lp.name, team: 'blue' });
+        renderLobbyRoster();
       });
-    });
 
-    copyUrlBtn.addEventListener('click', () => {
-      if (!myId) return;
-      const url = window.location.href.split('#')[0] + '#' + myId;
-      navigator.clipboard.writeText(url).then(() => {
-        copyUrlBtn.innerText = '完了!';
-        setTimeout(() => { copyUrlBtn.innerText = '招待URL'; }, 1500);
+      document.getElementById('btn-join-red').addEventListener('click', () => {
+        const lp = players.find(p => p.id === localPlayerId);
+        if (lp) lp.team = 'red';
+        if (isHost) broadcastLobbyState();
+        else sendNet('join_request', { name: lp.name, team: 'red' });
+        renderLobbyRoster();
       });
-    });
 
-    window.addEventListener('load', () => {
-      initNetwork();
-      render();
-      renderEnemyBoard(createEmptyGrid(), null);
-    });
+      // シャッフル
+      document.getElementById('btn-shuffle-teams').addEventListener('click', () => {
+        if (!isHost) return;
+        players.forEach((p, idx) => { p.team = idx % 2 === 0 ? 'blue' : 'red'; });
+        broadcastLobbyState();
+      });
+
+      // コピー
+      document.getElementById('btn-copy-code').addEventListener('click', () => {
+        navigator.clipboard.writeText(roomCode);
+        showFloatText('コードをコピーしました！', canvas.width / 2, canvas.height / 2, '#10b981', 18);
+      });
+
+      document.getElementById('btn-copy-url').addEventListener('click', () => {
+        const url = window.location.href.split('#')[0] + '#' + roomCode;
+        navigator.clipboard.writeText(url);
+        showFloatText('招待URLをコピーしました！', canvas.width / 2, canvas.height / 2, '#10b981', 18);
+      });
+
+      // ロビー離脱
+      document.getElementById('btn-leave-lobby').addEventListener('click', () => {
+        resetMatchCompletely();
+        showScreen('TITLE');
+      });
+
+      // 試合開始
+      document.getElementById('btn-start-game-match').addEventListener('click', () => {
+        if (!isHost) return;
+        isTimeEnabled = chkTime.checked;
+        isTargetGoalsEnabled = chkGoals.checked;
+        matchTimeSeconds = isTimeEnabled ? parseInt(timeSelect.value) : 999999;
+        initialMatchTime = matchTimeSeconds;
+        targetGoals = parseInt(goalsSelect.value);
+        maxBallsLimit = parseInt(document.getElementById('lobby-ball-select').value);
+
+        sendNet('match_start');
+        showScreen('IN_GAME');
+        startRoundReset();
+      });
+
+      // タイトルへ戻る
+      document.getElementById('btn-return-to-title').addEventListener('click', () => {
+        resetMatchCompletely();
+        showScreen('TITLE');
+      });
+
+      // URLハッシュ自動参加チェック
+      const hash = window.location.hash.replace('#', '').trim();
+      if (hash && hash.length >= 4) {
+        document.getElementById('input-join-code').value = hash;
+        joinLobbyWithCode(hash);
+      }
+    }
+
+    // 試合タイマー
+    setInterval(() => {
+      if (matchState === 'PLAYING') {
+        if (isTimeEnabled && matchTimeSeconds > 0 && matchTimeSeconds < 99999) {
+          if (isSoloMode || isHost) {
+            matchTimeSeconds--;
+          }
+          const mins = String(Math.floor(matchTimeSeconds / 60)).padStart(2, '0');
+          const secs = String(matchTimeSeconds % 60).padStart(2, '0');
+          document.getElementById('match-timer').textContent = `${mins}:${secs}`;
+          if (matchTimeSeconds <= 0 && (isSoloMode || isHost)) {
+            triggerMatchEnd('time');
+          }
+        }
+      }
+    }, 1000);
+
+    // オンライン同期インターバル (約20fps = 50ms)
+    setInterval(() => {
+      if (isSoloMode || matchState !== 'PLAYING') return;
+
+      // 1. 各プレイヤー自身の位置同期
+      const lp = players.find(p => p.id === localPlayerId);
+      if (lp) {
+        sendNet('player_input_sync', {
+          playerId: lp.id,
+          x: lp.x, y: lp.y, vx: lp.vx, vy: lp.vy,
+          facingAngle: lp.facingAngle, facingX: lp.facingX, facingY: lp.facingY,
+          actionState: lp.actionState, animLegPhase: lp.animLegPhase,
+          grabbedObjId: lp.grabbedObject ? lp.grabbedObject.id : null
+        });
+      }
+
+      // 2. ホストによるワールド同期（ボール・審判・スコア・備品）
+      if (isHost) {
+        sendNet('host_world_sync', {
+          balls: balls,
+          referee: { x: referee.x, y: referee.y, koTimer: referee.koTimer },
+          score: score,
+          matchTimeSeconds: matchTimeSeconds,
+          goals: {
+            left: { x: leftGoal.x, y: leftGoal.y },
+            right: { x: rightGoal.x, y: rightGoal.y }
+          },
+          obstacles: obstacles.map(o => ({ id: o.id, x: o.x, y: o.y }))
+        });
+      }
+    }, 50);
+
+    /* ==========================================================================
+       10. メインループ
+       ========================================================================== */
+    let lastTime = performance.now();
+    function gameLoop(currentTime) {
+      const dt = Math.min(0.1, (currentTime - lastTime) / 1000);
+      lastTime = currentTime;
+
+      updateBots(dt);
+      updatePhysics(dt);
+
+      renderMain();
+      renderMinimap();
+
+      updateHUD();
+      updateCooldownGauges();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    window.onload = function() {
+      resizeGame();
+      setupControls();
+      setupLobbyAndFlow();
+      requestAnimationFrame(gameLoop);
+    };
   </script>
 </body>
 </html>
