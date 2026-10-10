@@ -75,6 +75,7 @@
       border-radius: 20px;
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--border-color);
+      margin-top: 4px;
     }
     .status-dot {
       width: 8px;
@@ -254,7 +255,6 @@
       font-family: monospace;
     }
 
-    /* 盤面 & お邪魔メーター */
     .board-wrapper {
       position: relative;
       display: flex;
@@ -291,10 +291,8 @@
       font-style: italic;
       color: #3b455b;
       letter-spacing: 2px;
-      text-shadow: 0 0 15px rgba(255, 255, 255, 0.05);
     }
 
-    /* モーダル・オーバーレイ */
     .overlay-message {
       position: absolute;
       top: 0;
@@ -335,7 +333,6 @@
       text-shadow: 0 0 25px var(--accent-yellow);
     }
 
-    /* 操作ガイドフッター */
     .controls-guide {
       width: 100%;
       max-width: 960px;
@@ -358,27 +355,20 @@
       border-radius: 4px;
       margin-right: 4px;
     }
-
-    @media (max-width: 800px) {
-      .vs-badge { display: none; }
-      .battle-container { gap: 16px; }
-    }
   </style>
 </head>
 <body>
 
-  <!-- 上部接続UI -->
   <div class="top-panel">
     <div class="title-area">
       <h1>TETRIS BATTLE P2P</h1>
       <div id="statusBadge" class="status-badge waiting">
         <span class="status-dot"></span>
-        <span id="statusText">初期化中...</span>
+        <span id="statusText">サーバー接続中...</span>
       </div>
     </div>
 
     <div class="connection-controls">
-      <!-- 自分のルームID -->
       <div class="id-box">
         <span>MY ID:</span>
         <span id="myIdDisplay" class="id-val">------</span>
@@ -386,24 +376,19 @@
         <button id="copyUrlBtn" title="招待URLをコピー">招待URL</button>
       </div>
 
-      <!-- 相手への接続フォーム -->
       <div style="display:flex; gap:6px;">
         <input type="text" id="targetIdInput" placeholder="相手のID" maxlength="6">
         <button id="connectBtn" class="btn-primary">接続</button>
       </div>
 
-      <!-- ゲーム開始ボタン -->
       <button id="startGameBtn" class="btn-start" disabled>ゲーム開始</button>
     </div>
   </div>
 
-  <!-- 対戦メインフィールド -->
   <div class="battle-container">
-    <!-- 自分画面 -->
     <div class="player-area me">
       <div class="player-label">YOU</div>
       <div class="game-layout">
-        <!-- HOLD & STATS -->
         <div class="side-col">
           <div class="side-box">
             <div class="side-box-title">HOLD</div>
@@ -419,7 +404,6 @@
           </div>
         </div>
 
-        <!-- メイン盤面 -->
         <div class="board-wrapper">
           <div class="garbage-meter">
             <div id="myGarbageBar" class="garbage-bar" style="height: 0%;"></div>
@@ -427,7 +411,6 @@
           <canvas id="myCanvas" class="board-canvas" width="240" height="480"></canvas>
         </div>
 
-        <!-- NEXT -->
         <div class="side-col">
           <div class="side-box">
             <div class="side-box-title">NEXT</div>
@@ -436,7 +419,6 @@
         </div>
       </div>
 
-      <!-- オーバーレイ表示（勝敗・カウントダウン） -->
       <div id="myOverlay" class="overlay-message">
         <div id="overlayTitle" class="overlay-title">READY</div>
         <button id="rematchBtn" class="btn-primary" style="display:none; padding:10px 24px; font-size:1rem;">もう一度遊ぶ</button>
@@ -445,11 +427,9 @@
 
     <div class="vs-badge">VS</div>
 
-    <!-- 相手画面（プレビュー同期） -->
     <div class="player-area enemy">
       <div class="player-label">ENEMY</div>
       <div class="game-layout">
-        <!-- メイン盤面 -->
         <div class="board-wrapper">
           <div class="garbage-meter">
             <div id="enemyGarbageBar" class="garbage-bar" style="height: 0%;"></div>
@@ -457,7 +437,6 @@
           <canvas id="enemyCanvas" class="board-canvas" width="240" height="480"></canvas>
         </div>
 
-        <!-- 相手STATS -->
         <div class="side-col">
           <div class="side-box stats-box">
             <div class="side-box-title">LINES</div>
@@ -472,7 +451,6 @@
     </div>
   </div>
 
-  <!-- 操作方法ガイド -->
   <div class="controls-guide">
     <div class="guide-item"><span>← / →</span><span>A / D</span> 移動</div>
     <div class="guide-item"><span>↑</span><span>W / J</span> 回転</div>
@@ -487,7 +465,7 @@
        ========================================================================== */
     const COLS = 10;
     const ROWS = 20;
-    const BLOCK_SIZE = 24; // 24px * 10 = 240px, 24px * 20 = 480px
+    const BLOCK_SIZE = 24;
 
     const TETROMINOES = {
       I: { shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], color: '#00f0f0' },
@@ -513,15 +491,14 @@
 
     let score = 0;
     let linesCleared = 0;
-    let pendingGarbage = 0; // 保留中のお邪魔ブロック行数
+    let pendingGarbage = 0;
     let isGameOver = false;
     let isPlaying = false;
 
     let lastDropTime = 0;
-    let dropInterval = 800; // 落下速度 (ms)
+    let dropInterval = 800;
     let animationFrameId = null;
 
-    // Canvas要素
     const myCanvas = document.getElementById('myCanvas');
     const myCtx = myCanvas.getContext('2d');
     const enemyCanvas = document.getElementById('enemyCanvas');
@@ -543,12 +520,13 @@
     const rematchBtn = document.getElementById('rematchBtn');
 
     /* ==========================================================================
-       3. ネットワーク管理 (PeerJS)
+       3. ネットワーク管理 (PeerJS + 公開STUN設定)
        ========================================================================== */
-    const PEER_PREFIX = 'tetris-p2p-v1-';
+    const PEER_PREFIX = 't-battle-';
     let peer = null;
     let conn = null;
     let myShortId = '';
+    let connectTimeoutTimer = null;
 
     const statusBadge = document.getElementById('statusBadge');
     const statusText = document.getElementById('statusText');
@@ -564,11 +542,10 @@
       statusText.innerText = msg;
     }
 
-    // ランダムな英数字6桁ID生成
     function generateShortId() {
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
       let res = '';
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 5; i++) {
         res += chars.charAt(Math.floor(Math.random() * chars.length));
       }
       return res;
@@ -579,9 +556,22 @@
       myIdDisplay.innerText = myShortId;
       updateStatus('waiting', 'サーバー接続中...');
 
-      peer = new Peer(PEER_PREFIX + myShortId, {
-        debug: 1
-      });
+      // Google公開STUNサーバーを指定してNAT越えを可能にする
+      const peerConfig = {
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        }
+      };
+
+      try {
+        peer = new Peer(PEER_PREFIX + myShortId, peerConfig);
+      } catch (e) {
+        updateStatus('error', 'Peer初期化エラー: ' + e.message);
+        return;
+      }
 
       peer.on('open', (id) => {
         updateStatus('waiting', '待機中 (ID共有可)');
@@ -594,11 +584,15 @@
 
       peer.on('error', (err) => {
         console.error('Peer error:', err);
-        if (err.type === 'unavailable-id') {
-          // ID重複時は再試行
-          initPeer();
+        clearTimeout(connectTimeoutTimer);
+        connectBtn.disabled = false;
+
+        if (err.type === 'peer-unavailable') {
+          updateStatus('error', '相手のIDが見つかりません');
+        } else if (err.type === 'unavailable-id') {
+          initPeer(); // ID重複時は再生成
         } else {
-          updateStatus('error', '通信エラー: ' + err.type);
+          updateStatus('error', 'エラー: ' + err.type);
         }
       });
     }
@@ -608,9 +602,10 @@
       conn = connection;
 
       conn.on('open', () => {
+        clearTimeout(connectTimeoutTimer);
+        connectBtn.disabled = false;
         updateStatus('connected', '接続完了！');
         startGameBtn.disabled = false;
-        // 相手側にもID入力欄を反映
         const enemyId = conn.peer.replace(PEER_PREFIX, '');
         targetIdInput.value = enemyId;
       });
@@ -620,20 +615,50 @@
       });
 
       conn.on('close', () => {
+        clearTimeout(connectTimeoutTimer);
+        connectBtn.disabled = false;
         updateStatus('waiting', '接続が切断されました');
         startGameBtn.disabled = true;
         isPlaying = false;
       });
+
+      conn.on('error', (err) => {
+        console.error('Connection error:', err);
+        clearTimeout(connectTimeoutTimer);
+        connectBtn.disabled = false;
+        updateStatus('error', '通信障害が発生しました');
+      });
     }
 
     function connectToPeer(remoteShortId) {
+      if (!peer || !peer.open) {
+        alert('まだサーバーと接続できていません。少々お待ちください。');
+        return;
+      }
       if (!remoteShortId || remoteShortId.length < 4) {
         alert('正しいルームIDを入力してください');
         return;
       }
-      updateStatus('waiting', '相手に接続中...');
+
       const fullPeerId = PEER_PREFIX + remoteShortId.toUpperCase();
-      const c = peer.connect(fullPeerId, { reliable: true });
+      if (fullPeerId === peer.id) {
+        alert('自分自身のIDには接続できません。別のブラウザタブまたは端末で開いてください。');
+        return;
+      }
+
+      updateStatus('waiting', '接続試行中...');
+      connectBtn.disabled = true;
+
+      // 10秒経っても接続完了しない場合のタイムアウト
+      clearTimeout(connectTimeoutTimer);
+      connectTimeoutTimer = setTimeout(() => {
+        if (!conn || !conn.open) {
+          updateStatus('error', '接続タイムアウト（ID確認または再試行してください）');
+          connectBtn.disabled = false;
+        }
+      }, 10000);
+
+      const c = peer.connect(fullPeerId);
       setupConnection(c);
     }
 
@@ -651,32 +676,24 @@
       }
     }
 
-    // P2Pメッセージハンドラ
     function handlePeerData(data) {
       switch (data.type) {
         case 'start_countdown':
           startCountdown();
           break;
-
         case 'board_sync':
-          // 相手盤面の描画
           renderEnemyBoard(data.grid, data.piece, data.ghostY);
           enemyLinesDisplay.innerText = data.lines;
           enemyScoreDisplay.innerText = data.score;
           enemyGarbageBar.style.height = `${Math.min(100, (data.pendingGarbage / 20) * 100)}%`;
           break;
-
         case 'garbage':
-          // お邪魔ブロックを受け取る
           pendingGarbage += data.lines;
           updateGarbageMeter();
           break;
-
         case 'gameover':
-          // 相手がゲームオーバー -> 自分の勝利
           triggerGameOver(true);
           break;
-
         case 'rematch':
           startCountdown();
           break;
@@ -690,7 +707,6 @@
       return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
     }
 
-    // 7種1巡バッグ方式
     function getNextPieceType() {
       if (pieceBag.length === 0) {
         pieceBag = [...PIECE_TYPES].sort(() => Math.random() - 0.5);
@@ -717,7 +733,6 @@
 
       canHold = true;
 
-      // スポーン時にすでに衝突している場合はゲームオーバー
       if (checkCollision(currentPiece.shape, currentPiece.x, currentPiece.y, myGrid)) {
         triggerGameOver(false);
       }
@@ -758,7 +773,6 @@
       const originalShape = currentPiece.shape;
       const rotated = rotateMatrix(originalShape);
 
-      // 壁キック（SRSの簡易版: 通常位置 -> 左 -> 右 -> 上 -> 左右2マス）
       const kicks = [0, -1, 1, -2, 2];
       for (const offset of kicks) {
         if (!checkCollision(rotated, currentPiece.x + offset, currentPiece.y, myGrid)) {
@@ -826,7 +840,6 @@
     }
 
     function lockPiece() {
-      // 盤面に固定
       for (let r = 0; r < currentPiece.shape.length; r++) {
         for (let c = 0; c < currentPiece.shape[r].length; c++) {
           if (currentPiece.shape[r][c]) {
@@ -854,7 +867,7 @@
           myGrid.splice(r, 1);
           myGrid.unshift(Array(COLS).fill(0));
           lines++;
-          r++; // 落ちてきた同一行を再検査
+          r++;
         }
       }
 
@@ -865,15 +878,12 @@
         linesDisplay.innerText = linesCleared;
         scoreDisplay.innerText = score;
 
-        // お邪魔ブロック送信判定
-        // 2ライン: 1行, 3ライン: 2行, 4ライン: 4行
         let sendGarbage = 0;
         if (lines === 2) sendGarbage = 1;
         else if (lines === 3) sendGarbage = 2;
         else if (lines === 4) sendGarbage = 4;
 
         if (sendGarbage > 0) {
-          // 自分が受け取っているお邪魔と相殺
           if (pendingGarbage > 0) {
             const offset = Math.min(pendingGarbage, sendGarbage);
             pendingGarbage -= offset;
@@ -887,7 +897,6 @@
       }
     }
 
-    // お邪魔ブロックを盤面下部からせり上げ
     function applyPendingGarbage() {
       if (pendingGarbage <= 0) return;
 
@@ -896,7 +905,6 @@
       updateGarbageMeter();
 
       for (let i = 0; i < linesToAdd; i++) {
-        // 最上行にブロックがある場合は溢れてゲームオーバー
         if (myGrid[0].some(cell => cell !== 0)) {
           triggerGameOver(false);
           return;
@@ -930,11 +938,9 @@
         return;
       }
 
-      // ブロック本体
       ctx.fillStyle = color;
       ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
 
-      // 上・左のハイライト
       ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
       ctx.beginPath();
       ctx.moveTo(px, py);
@@ -946,7 +952,6 @@
       ctx.closePath();
       ctx.fill();
 
-      // 下・右のシャドウ
       ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       ctx.beginPath();
       ctx.moveTo(px + BLOCK_SIZE, py);
@@ -962,7 +967,6 @@
     function renderGrid(ctx, grid) {
       ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-      // 背景グリッド線
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
       ctx.lineWidth = 1;
       for (let r = 0; r <= ROWS; r++) {
@@ -978,7 +982,6 @@
         ctx.stroke();
       }
 
-      // 配置済みブロック
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           if (grid[r][c]) {
@@ -992,7 +995,6 @@
       renderGrid(myCtx, myGrid);
 
       if (currentPiece) {
-        // ゴーストブロック描画
         const ghostY = getGhostY();
         for (let r = 0; r < currentPiece.shape.length; r++) {
           for (let c = 0; c < currentPiece.shape[r].length; c++) {
@@ -1002,7 +1004,6 @@
           }
         }
 
-        // 操作中ブロック描画
         for (let r = 0; r < currentPiece.shape.length; r++) {
           for (let c = 0; c < currentPiece.shape[r].length; c++) {
             if (currentPiece.shape[r][c]) {
@@ -1043,7 +1044,7 @@
 
       const proto = TETROMINOES[type];
       const shape = proto.shape;
-      const size = 12; // 縮小サイズ
+      const size = 12;
       const offsetX = (ctx.canvas.width - shape[0].length * size) / 2;
       const offsetY = (ctx.canvas.height - shape.length * size) / 2;
 
@@ -1057,7 +1058,6 @@
       }
     }
 
-    // 盤面状態を相手へ低遅延送信
     function sendBoardSync() {
       if (!conn || !conn.open) return;
       sendData('board_sync', {
@@ -1076,7 +1076,7 @@
     }
 
     /* ==========================================================================
-       6. ゲームループ & 勝敗管理
+       6. ゲーム進行・勝敗
        ========================================================================== */
     function gameLoop(timestamp) {
       if (!isPlaying) return;
@@ -1092,7 +1092,6 @@
     }
 
     function startCountdown() {
-      // 盤面リセット
       myGrid = createEmptyGrid();
       currentPiece = null;
       holdPieceType = null;
@@ -1153,12 +1152,10 @@
     }
 
     /* ==========================================================================
-       7. 操作イベントリスナー
+       7. 操作イベント
        ========================================================================== */
     window.addEventListener('keydown', (e) => {
-      // 入力フォーム操作中はゲームキーを無効化
       if (document.activeElement === targetIdInput) return;
-
       if (!isPlaying || isGameOver) return;
 
       switch (e.code) {
@@ -1197,7 +1194,6 @@
       }
     });
 
-    // 接続ボタン
     connectBtn.addEventListener('click', () => {
       const targetId = targetIdInput.value.trim();
       connectToPeer(targetId);
@@ -1209,19 +1205,16 @@
       }
     });
 
-    // ゲーム開始ボタン
     startGameBtn.addEventListener('click', () => {
       sendData('start_countdown');
       startCountdown();
     });
 
-    // リトライボタン
     rematchBtn.addEventListener('click', () => {
       sendData('rematch');
       startCountdown();
     });
 
-    // IDコピー
     copyIdBtn.addEventListener('click', () => {
       if (!myShortId) return;
       navigator.clipboard.writeText(myShortId).then(() => {
@@ -1230,17 +1223,15 @@
       });
     });
 
-    // 招待URLコピー
     copyUrlBtn.addEventListener('click', () => {
       if (!myShortId) return;
-      const url = window.location.origin + window.location.pathname + '#' + myShortId;
+      const url = window.location.href.split('#')[0] + '#' + myShortId;
       navigator.clipboard.writeText(url).then(() => {
         copyUrlBtn.innerText = '完了!';
         setTimeout(() => { copyUrlBtn.innerText = '招待URL'; }, 1500);
       });
     });
 
-    // 起動
     window.addEventListener('load', () => {
       initPeer();
       render();
