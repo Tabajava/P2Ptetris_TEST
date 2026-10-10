@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>P2P 対戦テトリス (SRS / T-Spin / 7-Bag対応)</title>
+  <title>P2P 対戦テトリス</title>
   <!-- PeerJS CDN -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
@@ -15,7 +15,6 @@
       --accent-magenta: #f00078;
       --accent-green: #00f078;
       --accent-yellow: #f0f000;
-      --accent-purple: #a000f0;
       --text-color: #e6edf3;
       --text-muted: #8b949e;
       --garbage-color: #636e72;
@@ -77,12 +76,15 @@
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--border-color);
       margin-top: 4px;
+      max-width: 100%;
+      word-break: break-all;
     }
     .status-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
       background: #777;
+      flex-shrink: 0;
     }
     .status-badge.connected .status-dot { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
     .status-badge.waiting .status-dot { background: var(--accent-yellow); box-shadow: 0 0 8px var(--accent-yellow); }
@@ -387,7 +389,7 @@
       <h1>TETRIS BATTLE P2P</h1>
       <div id="statusBadge" class="status-badge waiting">
         <span class="status-dot"></span>
-        <span id="statusText">シグナリング待機中...</span>
+        <span id="statusText">サーバー接続中...</span>
       </div>
     </div>
 
@@ -501,70 +503,40 @@
     const ROWS = 20;
     const BLOCK_SIZE = 24;
 
-    // 7種ミノの基本形状 (回転状態 0)
     const PIECE_DEFS = {
       I: {
-        shape: [
-          [0,0,0,0],
-          [1,1,1,1],
-          [0,0,0,0],
-          [0,0,0,0]
-        ],
+        shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
         color: '#00f0f0'
       },
       O: {
-        shape: [
-          [1,1],
-          [1,1]
-        ],
+        shape: [[1,1],[1,1]],
         color: '#f0f000'
       },
       T: {
-        shape: [
-          [0,1,0],
-          [1,1,1],
-          [0,0,0]
-        ],
+        shape: [[0,1,0],[1,1,1],[0,0,0]],
         color: '#a000f0'
       },
       S: {
-        shape: [
-          [0,1,1],
-          [1,1,0],
-          [0,0,0]
-        ],
+        shape: [[0,1,1],[1,1,0],[0,0,0]],
         color: '#00f000'
       },
       Z: {
-        shape: [
-          [1,1,0],
-          [0,1,1],
-          [0,0,0]
-        ],
+        shape: [[1,1,0],[0,1,1],[0,0,0]],
         color: '#f00000'
       },
       J: {
-        shape: [
-          [1,0,0],
-          [1,1,1],
-          [0,0,0]
-        ],
+        shape: [[1,0,0],[1,1,1],[0,0,0]],
         color: '#0000f0'
       },
       L: {
-        shape: [
-          [0,0,1],
-          [1,1,1],
-          [0,0,0]
-        ],
+        shape: [[0,0,1],[1,1,1],[0,0,0]],
         color: '#f0a000'
       }
     };
     const PIECE_TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
     const GARBAGE_COLOR = '#636e72';
 
-    // SRS ウォールキックデータ (画面座標系: Y正が下)
-    // JLSTZ用キックテーブル: key: 'fromRotation>toRotation' -> [dx, dy] リスト
+    // SRS ウォールキックデータ
     const WALLKICK_JLSTZ = {
       '0>1': [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
       '1>0': [[0,0], [1,0], [1,1], [0,-2], [1,-2]],
@@ -576,7 +548,6 @@
       '0>3': [[0,0], [1,0], [1,-1], [0,2], [1,2]]
     };
 
-    // Iミノ用キックテーブル
     const WALLKICK_I = {
       '0>1': [[0,0], [-2,0], [1,0], [-2,1], [1,-2]],
       '1>0': [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],
@@ -604,27 +575,22 @@
     let isGameOver = false;
     let isPlaying = false;
     let backToBack = false;
-
-    // Tスピン判定用フラグ
     let lastActionWasRotate = false;
 
-    // タイマー・落下管理
     let lastDropTime = 0;
     let dropInterval = 850;
     let animationFrameId = null;
 
-    // 入力長押し管理（DAS / ARR / ソフトドロップ）
+    // 入力管理 (DAS / ARR)
     const keyStates = {};
-    const DAS = 140; // 初回リピートまでのディレイ (ms)
-    const ARR = 32;  // リピート間隔 (ms)
-    const SOFT_DROP_INTERVAL = 40; // ソフトドロップ間隔 (ms)
+    const DAS = 140;
+    const ARR = 32;
+    const SOFT_DROP_INTERVAL = 40;
 
     let leftHoldTime = 0;
     let rightHoldTime = 0;
-    let downHoldTime = 0;
     let lastSoftDropTick = 0;
 
-    // DOM要素
     const myCanvas = document.getElementById('myCanvas');
     const myCtx = myCanvas.getContext('2d');
     const enemyCanvas = document.getElementById('enemyCanvas');
@@ -648,7 +614,7 @@
     const rematchBtn = document.getElementById('rematchBtn');
 
     /* ==========================================================================
-       3. ネットワーク管理 (PeerJS + TURN/STUN)
+       3. ネットワーク管理 (信頼性の高いGoogle & Cloudflare STUNのみ使用)
        ========================================================================== */
     const PEER_PREFIX = 'tb-';
     let peer = null;
@@ -683,29 +649,17 @@
     function initPeer() {
       myShortId = generateShortId();
       myIdDisplay.innerText = myShortId;
-      updateStatus('waiting', 'シグナリング待機中...');
+      updateStatus('waiting', 'シグナリング接続中...');
 
+      // 安定している Google & Cloudflare の STUN のみを使用
       const peerConfig = {
         debug: 1,
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            {
-              urls: 'turn:openrelay.metered.ca:80',
-              username: 'openrelayproject',
-              credential: 'openrelayprojectsecret'
-            },
-            {
-              urls: 'turn:openrelay.metered.ca:443',
-              username: 'openrelayproject',
-              credential: 'openrelayprojectsecret'
-            },
-            {
-              urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-              username: 'openrelayproject',
-              credential: 'openrelayprojectsecret'
-            }
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun.cloudflare.com:3478' }
           ]
         }
       };
@@ -713,7 +667,7 @@
       try {
         peer = new Peer(PEER_PREFIX + myShortId, peerConfig);
       } catch (e) {
-        updateStatus('error', 'Peer初期化失敗: ' + e.message);
+        updateStatus('error', 'Peer初期化エラー: ' + e.message);
         return;
       }
 
@@ -728,14 +682,17 @@
       });
 
       peer.on('error', (err) => {
+        console.error('Peer error:', err);
         clearTimeout(connectTimeoutTimer);
         connectBtn.disabled = false;
+
+        const detail = err.type ? `(${err.type})` : '';
         if (err.type === 'peer-unavailable') {
-          updateStatus('error', '相手が見つかりません(ID確認)');
+          updateStatus('error', `相手が見つかりません。IDを確認してください`);
         } else if (err.type === 'unavailable-id') {
           initPeer();
         } else {
-          updateStatus('error', '通信エラー: ' + err.type);
+          updateStatus('error', `エラー: ${err.message || err.type || '通信障害'} ${detail}`);
         }
       });
     }
@@ -766,6 +723,7 @@
         conn.on('open', markConnected);
       }
 
+      // 低レベルDataChannelのイベント監視
       if (conn.dataChannel) {
         conn.dataChannel.onopen = markConnected;
       }
@@ -787,15 +745,17 @@
         clearTimeout(connectTimeoutTimer);
         connectBtn.disabled = false;
         isConnectionEstablished = false;
-        updateStatus('waiting', '切断されました');
+        updateStatus('waiting', '接続が切断されました');
         startGameBtn.disabled = true;
         isPlaying = false;
       });
 
-      conn.on('error', () => {
+      conn.on('error', (err) => {
+        console.error('Conn error:', err);
         clearTimeout(connectTimeoutTimer);
         connectBtn.disabled = false;
-        updateStatus('error', '通信障害が発生しました');
+        const msg = err && (err.message || err.type) ? ` (${err.message || err.type})` : '';
+        updateStatus('error', '通信障害が発生しました' + msg);
       });
     }
 
@@ -812,11 +772,11 @@
 
       const fullPeerId = PEER_PREFIX + cleanId;
       if (fullPeerId === peer.id) {
-        alert('自分のIDには接続できません。別のウィンドウで開いてください。');
+        alert('自分のIDには接続できません。別のウィンドウまたは別端末で開いてください。');
         return;
       }
 
-      updateStatus('waiting', '経路探索中... (最大20秒)');
+      updateStatus('waiting', '接続試行中...');
       connectBtn.disabled = true;
 
       clearTimeout(connectTimeoutTimer);
@@ -825,9 +785,10 @@
           updateStatus('error', '接続タイムアウト（ID確認または再試行してください）');
           connectBtn.disabled = false;
         }
-      }, 20000);
+      }, 15000);
 
-      const outgoingConn = peer.connect(fullPeerId, { reliable: true });
+      // オプションなしで標準接続（PeerJS 1.5系の互換性不具合を防止）
+      const outgoingConn = peer.connect(fullPeerId);
       setupConnection(outgoingConn);
     }
 
@@ -881,13 +842,12 @@
     }
 
     /* ==========================================================================
-       4. 7種1巡バッグ & テトリス基本システム
+       4. 7種1巡バッグ & 基本システム
        ========================================================================== */
     function createEmptyGrid() {
       return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
     }
 
-    // 厳密な7種1巡バッグ方式 (Fisher-Yatesシャッフル)
     function refillBag() {
       const bag = [...PIECE_TYPES];
       for (let i = bag.length - 1; i > 0; i--) {
@@ -925,7 +885,6 @@
       canHold = true;
       lastActionWasRotate = false;
 
-      // 出現直後に衝突している場合は即ゲームオーバー
       if (checkCollision(currentPiece.shape, currentPiece.x, currentPiece.y, myGrid)) {
         triggerGameOver(false);
       }
@@ -950,9 +909,8 @@
     }
 
     /* ==========================================================================
-       5. SRS 回転 ＆ T-Spin 判定ロジック
+       5. SRS 回転 ＆ T-Spin 判定
        ========================================================================== */
-    // 行列の90度回転 (CW: 右, CCW: 左)
     function rotateShape(shape, dir) {
       const n = shape.length;
       const res = Array.from({ length: n }, () => Array(n).fill(0));
@@ -970,7 +928,7 @@
 
     function rotatePiece(dir) {
       if (!currentPiece || !isPlaying) return;
-      if (currentPiece.type === 'O') return; // Oミノは回転不要
+      if (currentPiece.type === 'O') return;
 
       const fromRot = currentPiece.rotation;
       const toRot = dir === 'CW' ? (fromRot + 1) % 4 : (fromRot + 3) % 4;
@@ -985,7 +943,7 @@
           currentPiece.x += kx;
           currentPiece.y += ky;
           currentPiece.rotation = toRot;
-          lastActionWasRotate = true; // 回転アクション成立
+          lastActionWasRotate = true;
           sendBoardSync();
           render();
           return;
@@ -993,17 +951,12 @@
       }
     }
 
-    // T-Spin 3-Corner 判定ルール
     function checkTSpin() {
       if (!currentPiece || currentPiece.type !== 'T' || !lastActionWasRotate) {
         return false;
       }
-
-      // Tミノの中心は (x+1, y+1)
       const cx = currentPiece.x + 1;
       const cy = currentPiece.y + 1;
-
-      // 対角4隅の座標
       const corners = [
         [cx - 1, cy - 1],
         [cx + 1, cy - 1],
@@ -1017,8 +970,6 @@
           occupied++;
         }
       }
-
-      // 4隅のうち3隅以上が埋まっていればT-Spin
       return occupied >= 3;
     }
 
@@ -1028,7 +979,7 @@
         currentPiece.x += dx;
         currentPiece.y += dy;
         if (dx !== 0 || dy !== 0) {
-          lastActionWasRotate = false; // 移動した場合はT-Spinフラグ無効化
+          lastActionWasRotate = false;
         }
         sendBoardSync();
         render();
@@ -1084,7 +1035,6 @@
     function lockPiece() {
       const isTSpin = checkTSpin();
 
-      // ブロック固定
       for (let r = 0; r < currentPiece.shape.length; r++) {
         for (let c = 0; c < currentPiece.shape[r].length; c++) {
           if (currentPiece.shape[r][c]) {
@@ -1106,7 +1056,7 @@
     }
 
     /* ==========================================================================
-       6. ライン消去・攻撃力計算（T-Spin / Tetris / B2B）
+       6. ライン消去・攻撃力（B2B / T-Spin）
        ========================================================================== */
     function clearLines(isTSpin) {
       let lines = 0;
@@ -1155,13 +1105,12 @@
         }
       }
 
-      // Back-to-Back (B2B) 判定: テトリスまたはT-Spin消しが連続
       if (lines > 0) {
         linesCleared += lines;
         const isDifficult = isTSpin || lines === 4;
         if (isDifficult) {
           if (backToBack) {
-            sendGarbage += 1; // B2Bボーナス +1行
+            sendGarbage += 1;
             toastText = 'B2B ' + toastText;
           }
           backToBack = true;
@@ -1177,7 +1126,6 @@
         linesDisplay.innerText = linesCleared;
         scoreDisplay.innerText = score;
 
-        // お邪魔ブロック送信・相殺
         if (sendGarbage > 0) {
           if (pendingGarbage > 0) {
             const offset = Math.min(pendingGarbage, sendGarbage);
@@ -1218,7 +1166,7 @@
     }
 
     /* ==========================================================================
-       7. 描画システム
+       7. 描画
        ========================================================================== */
     function drawBlock(ctx, x, y, color, isGhost = false) {
       const px = x * BLOCK_SIZE;
@@ -1236,7 +1184,6 @@
       ctx.fillStyle = color;
       ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
 
-      // 上・左の立体光
       ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
       ctx.beginPath();
       ctx.moveTo(px, py);
@@ -1248,7 +1195,6 @@
       ctx.closePath();
       ctx.fill();
 
-      // 下・右の立体影
       ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       ctx.beginPath();
       ctx.moveTo(px + BLOCK_SIZE, py);
@@ -1373,12 +1319,11 @@
     }
 
     /* ==========================================================================
-       8. ゲームループ & 入力長押し（DAS / ARR / ソフトドロップ）
+       8. ゲームループ & 入力処理
        ========================================================================== */
     function updateInputs(now) {
       if (!isPlaying || isGameOver) return;
 
-      // 1. 左長押し処理
       if (keyStates['ArrowLeft'] || keyStates['KeyA']) {
         if (leftHoldTime === 0) {
           leftHoldTime = now;
@@ -1396,7 +1341,6 @@
         leftHoldTime = 0;
       }
 
-      // 2. 右長押し処理
       if (keyStates['ArrowRight'] || keyStates['KeyD']) {
         if (rightHoldTime === 0) {
           rightHoldTime = now;
@@ -1414,7 +1358,6 @@
         rightHoldTime = 0;
       }
 
-      // 3. 下長押し（一定速度でスムーズなソフトドロップ）
       if (keyStates['ArrowDown'] || keyStates['KeyS']) {
         if (now - lastSoftDropTick >= SOFT_DROP_INTERVAL) {
           if (movePiece(0, 1)) {
@@ -1431,7 +1374,6 @@
 
       updateInputs(timestamp);
 
-      // 通常重力落下
       if (timestamp - lastDropTime > dropInterval) {
         if (!movePiece(0, 1)) {
           lockPiece();
@@ -1505,18 +1447,16 @@
     }
 
     /* ==========================================================================
-       9. キーイベント（Z/X回転、スペース、下押下）
+       9. キーイベント
        ========================================================================== */
     window.addEventListener('keydown', (e) => {
       if (document.activeElement === targetIdInput) return;
 
-      // 押下状態を記録（長押し連続入力用）
       keyStates[e.code] = true;
 
       if (!isPlaying || isGameOver) return;
 
       switch (e.code) {
-        // 左右（押した瞬間の1マス移動）
         case 'ArrowLeft':
         case 'KeyA':
           if (!e.repeat) movePiece(-1, 0);
@@ -1527,8 +1467,6 @@
           if (!e.repeat) movePiece(1, 0);
           e.preventDefault();
           break;
-
-        // 下ソフトドロップ（押した瞬間の1マス移動）
         case 'ArrowDown':
         case 'KeyS':
           if (!e.repeat) {
@@ -1540,28 +1478,20 @@
           }
           e.preventDefault();
           break;
-
-        // 回転: Zキーで左回転 (CCW)
         case 'KeyZ':
           if (!e.repeat) rotatePiece('CCW');
           e.preventDefault();
           break;
-
-        // 回転: Xキー / 上キーで右回転 (CW)
         case 'KeyX':
         case 'ArrowUp':
         case 'KeyW':
           if (!e.repeat) rotatePiece('CW');
           e.preventDefault();
           break;
-
-        // ハードドロップ: スペース
         case 'Space':
           if (!e.repeat) hardDrop();
           e.preventDefault();
           break;
-
-        // ホールド: C / Shift
         case 'KeyC':
         case 'ShiftLeft':
         case 'ShiftRight':
@@ -1575,7 +1505,6 @@
       keyStates[e.code] = false;
     });
 
-    // 接続・開始ボタンイベント
     connectBtn.addEventListener('click', () => {
       const targetId = targetIdInput.value.trim();
       connectToPeer(targetId);
