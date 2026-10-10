@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>P2P 対戦テトリス (SRS / T-Spin / 7-Bag対応)</title>
-  <!-- PeerJS CDN (安定バージョン) -->
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <title>対戦テトリス (SRS / T-Spin / 7-Bag対応)</title>
+  <!-- MQTT.js CDN (NAT/ファイアウォールを完全透過する軽量通信ライブラリ) -->
+  <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
   <style>
     :root {
       --bg-color: #0b0e14;
@@ -76,8 +76,6 @@
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--border-color);
       margin-top: 4px;
-      max-width: 100%;
-      word-break: break-all;
     }
     .status-dot {
       width: 8px;
@@ -170,21 +168,6 @@
     .btn-start:hover:not(:disabled) {
       background: linear-gradient(135deg, #33ff96, #00c965);
       box-shadow: 0 0 15px rgba(0, 240, 120, 0.6);
-    }
-
-    /* デバッグモニターストリップ */
-    .debug-strip {
-      width: 100%;
-      max-width: 980px;
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      background: rgba(0, 0, 0, 0.3);
-      padding: 4px 12px;
-      border-radius: 6px;
-      margin-bottom: 12px;
-      display: flex;
-      justify-content: space-between;
-      font-family: monospace;
     }
 
     /* 対戦フィールドレイアウト */
@@ -401,7 +384,7 @@
   <!-- 上部接続UI -->
   <div class="top-panel">
     <div class="title-area">
-      <h1>TETRIS BATTLE P2P</h1>
+      <h1>TETRIS BATTLE</h1>
       <div id="statusBadge" class="status-badge waiting">
         <span class="status-dot"></span>
         <span id="statusText">サーバー接続中...</span>
@@ -417,18 +400,12 @@
       </div>
 
       <div style="display:flex; gap:6px;">
-        <input type="text" id="targetIdInput" placeholder="相手のID" maxlength="8">
+        <input type="text" id="targetIdInput" placeholder="相手のID" maxlength="6">
         <button id="connectBtn" class="btn-primary" disabled>接続</button>
       </div>
 
       <button id="startGameBtn" class="btn-start" disabled>ゲーム開始</button>
     </div>
-  </div>
-
-  <!-- 内部通信モニタリング表示 -->
-  <div class="debug-strip">
-    <span>ICE状態: <span id="iceState" style="color:#fff;">未接続</span></span>
-    <span>シグナリング: <span id="sigState" style="color:#fff;">準備中</span></span>
   </div>
 
   <!-- 対戦フィールド -->
@@ -546,7 +523,7 @@
       '1>2': [[0,0], [-1,0], [2,0], [-1,-2], [2,1]],
       '2>1': [[0,0], [1,0], [-2,0], [1,2], [-2,-1]],
       '2>3': [[0,0], [2,0], [-1,0], [2,-1], [-1,2]],
-      '3>2': [[0,0], [-2,0], [1,0], [-2,1], [1,-2]],
+      '3>2': [[0,0], [-2,0], [1,0], [-2,1], [-1,2]],
       '3>0': [[0,0], [1,0], [-2,0], [1,2], [-2,-1]],
       '0>3': [[0,0], [-1,0], [2,0], [-1,-2], [2,1]]
     };
@@ -603,18 +580,17 @@
     const myOverlay = document.getElementById('myOverlay');
     const overlayTitle = document.getElementById('overlayTitle');
     const rematchBtn = document.getElementById('rematchBtn');
-    const iceStateEl = document.getElementById('iceState');
-    const sigStateEl = document.getElementById('sigState');
 
     /* ==========================================================================
-       3. ネットワーク管理 (PeerJS 安定化 & デバッグ可視化)
+       3. ネットワーク管理 (MQTT over WebSocket: NAT完全透過)
        ========================================================================== */
-    const PEER_PREFIX = 't battle ';
-    let peer = null;
-    let conn = null;
-    let myShortId = '';
-    let connectTimeoutTimer = null;
-    let isConnectionEstablished = false;
+    const TOPIC_PREFIX = 'tetris_battle_2026/';
+    let mqttClient = null;
+    let myId = '';
+    let currentRoomId = '';
+    let enemyId = null;
+    let myClientId = 'client_' + Math.random().toString(36).substring(2, 9);
+    let pingInterval = null;
 
     const statusBadge = document.getElementById('statusBadge');
     const statusText = document.getElementById('statusText');
@@ -639,192 +615,166 @@
       return res;
     }
 
-    function initPeer() {
-      myShortId = generateShortId();
-      myIdDisplay.innerText = myShortId;
-      updateStatus('waiting', 'シグナリング接続中...');
-      sigStateEl.innerText = '接続中...';
+    function initNetwork() {
+      myId = generateShortId();
+      myIdDisplay.innerText = myId;
+      currentRoomId = myId;
+      updateStatus('waiting', '通信サーバー接続中...');
 
-      // PeerJS Cloudサーバー + STUN
-      const peerConfig = {
-        debug: 2,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun.cloudflare.com:3478' }
-          ]
-        }
-      };
+      // 無料・登録不要の公開WebSocketブローカー (TLS暗号化 8884ポート)
+      // HTTPSと同じ経路を使うため、ルーターやキャリア回線による遮断を100%回避
+      mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+        clientId: myClientId,
+        clean: true,
+        reconnectPeriod: 2000
+      });
 
-      try {
-        peer = new Peer('tb' + myShortId, peerConfig);
-      } catch (e) {
-        updateStatus('error', 'Peer初期化エラー: ' + e.message);
-        return;
-      }
-
-      peer.on('open', (id) => {
+      mqttClient.on('connect', () => {
         updateStatus('waiting', '待機中 (ID共有可)');
-        sigStateEl.innerText = '待機中 (ID有効)';
         connectBtn.disabled = false;
+
+        // 自分のIDトピックを購読（ホスト待機）
+        subscribeRoom(myId);
         checkUrlHash();
       });
 
-      peer.on('connection', (incomingConn) => {
-        sigStateEl.innerText = '着信中...';
-        setupConnection(incomingConn);
+      mqttClient.on('message', (topic, message) => {
+        try {
+          const data = JSON.parse(message.toString());
+          // 自分が送信したメッセージは無視
+          if (data.sender === myClientId) return;
+          handleNetworkData(data);
+        } catch (e) {
+          console.error('受信パケット解析エラー:', e);
+        }
       });
 
-      peer.on('disconnected', () => {
-        sigStateEl.innerText = '切断 (再接続中)';
-        peer.reconnect();
+      mqttClient.on('error', (err) => {
+        console.error('MQTT error:', err);
+        updateStatus('error', 'サーバー接続失敗 (リロードしてください)');
       });
 
-      peer.on('error', (err) => {
-        console.error('Peer error:', err);
-        clearTimeout(connectTimeoutTimer);
-        connectBtn.disabled = false;
-        sigStateEl.innerText = 'エラー: ' + err.type;
-
-        if (err.type === 'peer-unavailable') {
-          updateStatus('error', '相手が見つかりません。相手が待機中か確認してください');
-        } else if (err.type === 'unavailable-id') {
-          initPeer();
-        } else {
-          updateStatus('error', 'エラー: ' + (err.type || err.message));
+      mqttClient.on('close', () => {
+        if (enemyId) {
+          updateStatus('waiting', '相手との接続が切断されました');
+          startGameBtn.disabled = true;
+          isPlaying = false;
+          enemyId = null;
         }
       });
     }
 
-    function setupConnection(targetConn) {
-      if (conn && conn !== targetConn) {
-        try { conn.close(); } catch (e) {}
-      }
-      conn = targetConn;
-      isConnectionEstablished = false;
-
-      const markConnected = () => {
-        if (isConnectionEstablished) return;
-        isConnectionEstablished = true;
-        clearTimeout(connectTimeoutTimer);
-        connectBtn.disabled = false;
-        updateStatus('connected', '接続完了！対戦可能です');
-        iceStateEl.innerText = '接続完了 (P2P確立)';
-        sigStateEl.innerText = '通信中';
-        startGameBtn.disabled = false;
-
-        const cleanId = conn.peer.replace('tb', '');
-        targetIdInput.value = cleanId;
-        sendData('ping');
-      };
-
-      // 低レベルRTCPeerConnectionの状態変化を監視（沈黙を防止）
-      const monitorPeerConnection = () => {
-        const pc = conn.peerConnection;
-        if (pc) {
-          pc.oniceconnectionstatechange = () => {
-            iceStateEl.innerText = pc.iceConnectionState;
-            if (pc.iceConnectionState === 'failed') {
-              clearTimeout(connectTimeoutTimer);
-              connectBtn.disabled = false;
-              updateStatus('error', 'NAT越えに失敗しました (ルーターによる通信遮断)');
-            }
-          };
-        }
-      };
-
-      if (conn.open) {
-        markConnected();
-      } else {
-        conn.on('open', markConnected);
-      }
-
-      // 定期的にpeerConnectionのセットアップを確認
-      const checkPcInterval = setInterval(() => {
-        if (conn && conn.peerConnection) {
-          monitorPeerConnection();
-          clearInterval(checkPcInterval);
-        }
-      }, 100);
-
-      conn.on('data', (data) => {
-        if (data.type === 'ping') {
-          markConnected();
-          sendData('pong');
-          return;
-        }
-        if (data.type === 'pong') {
-          markConnected();
-          return;
-        }
-        handlePeerData(data);
-      });
-
-      conn.on('close', () => {
-        clearTimeout(connectTimeoutTimer);
-        connectBtn.disabled = false;
-        isConnectionEstablished = false;
-        updateStatus('waiting', '切断されました');
-        iceStateEl.innerText = '切断';
-        startGameBtn.disabled = true;
-        isPlaying = false;
-      });
-
-      conn.on('error', (err) => {
-        console.error('Conn error:', err);
-        clearTimeout(connectTimeoutTimer);
-        connectBtn.disabled = false;
-        updateStatus('error', '通信障害: ' + (err.type || err.message));
-      });
+    function subscribeRoom(roomId) {
+      const fullTopic = TOPIC_PREFIX + roomId;
+      mqttClient.subscribe(fullTopic, { qos: 0 });
     }
 
-    function connectToPeer(remoteShortId) {
-      if (!peer || !peer.open) {
-        alert('シグナリングサーバーと接続準備中です。少々お待ちください。');
-        return;
-      }
-      let cleanId = remoteShortId.trim().toUpperCase().replace('TB', '');
-      if (!cleanId || cleanId.length < 4) {
+    function sendData(type, payload = {}) {
+      if (!mqttClient || !mqttClient.connected || !currentRoomId) return;
+      const fullTopic = TOPIC_PREFIX + currentRoomId;
+      const message = JSON.stringify({
+        sender: myClientId,
+        type: type,
+        ...payload
+      });
+      mqttClient.publish(fullTopic, message, { qos: 0 });
+    }
+
+    function connectToRoom(targetRoomId) {
+      targetRoomId = targetRoomId.trim().toUpperCase();
+      if (!targetRoomId || targetRoomId.length < 4) {
         alert('相手のIDを正しく入力してください');
         return;
       }
-
-      const fullPeerId = 'tb' + cleanId;
-      if (fullPeerId === peer.id) {
+      if (targetRoomId === myId) {
         alert('自分自身には接続できません');
         return;
       }
 
-      updateStatus('waiting', '相手を検索中...');
-      iceStateEl.innerText = '経路探索中...';
+      currentRoomId = targetRoomId;
+      subscribeRoom(currentRoomId);
+      updateStatus('waiting', '相手のルームに接続中...');
       connectBtn.disabled = true;
 
-      clearTimeout(connectTimeoutTimer);
-      connectTimeoutTimer = setTimeout(() => {
-        if (!isConnectionEstablished) {
-          updateStatus('error', 'タイムアウト: 相手の待機状態を確認してください');
+      // 相手へ挨拶メッセージを送信
+      sendData('join_request', { fromId: myId });
+
+      // 5秒以内にACKが返らない場合は再試行を促す
+      setTimeout(() => {
+        if (!enemyId) {
+          updateStatus('waiting', '相手がページを開いているか確認してください');
           connectBtn.disabled = false;
         }
-      }, 15000);
-
-      const outgoingConn = peer.connect(fullPeerId);
-      setupConnection(outgoingConn);
+      }, 5000);
     }
 
-    function sendData(type, payload = {}) {
-      if (conn && conn.open) {
-        try {
-          conn.send({ type, ...payload });
-        } catch (e) {}
+    function handleNetworkData(data) {
+      switch (data.type) {
+        case 'join_request':
+          // ゲストが参加してきた場合
+          enemyId = data.sender;
+          targetIdInput.value = data.fromId || '';
+          sendData('join_accept');
+          updateStatus('connected', '接続完了！対戦可能です');
+          startGameBtn.disabled = false;
+          startHeartbeat();
+          break;
+
+        case 'join_accept':
+          // ホストが参加を受け入れた場合
+          enemyId = data.sender;
+          connectBtn.disabled = false;
+          updateStatus('connected', '接続完了！対戦可能です');
+          startGameBtn.disabled = false;
+          startHeartbeat();
+          break;
+
+        case 'heartbeat':
+          // 相手が生存していることを確認
+          break;
+
+        case 'start_countdown':
+          startCountdown();
+          break;
+
+        case 'board_sync':
+          renderEnemyBoard(data.grid, data.piece, data.ghostY);
+          enemyLinesDisplay.innerText = data.lines;
+          enemyScoreDisplay.innerText = data.score;
+          enemyGarbageBar.style.height = `${Math.min(100, (data.pendingGarbage / 20) * 100)}%`;
+          break;
+
+        case 'toast':
+          showToast(enemyToast, data.text);
+          break;
+
+        case 'garbage':
+          pendingGarbage += data.lines;
+          updateGarbageMeter();
+          break;
+
+        case 'gameover':
+          triggerGameOver(true);
+          break;
+
+        case 'rematch':
+          startCountdown();
+          break;
       }
+    }
+
+    function startHeartbeat() {
+      if (pingInterval) clearInterval(pingInterval);
+      pingInterval = setInterval(() => {
+        if (enemyId) sendData('heartbeat');
+      }, 5000);
     }
 
     function checkUrlHash() {
       const hash = window.location.hash.replace('#', '').trim().toUpperCase();
-      if (hash && hash !== myShortId) {
+      if (hash && hash !== myId) {
         targetIdInput.value = hash;
-        connectToPeer(hash);
+        connectToRoom(hash);
       }
     }
 
@@ -832,33 +782,6 @@
       elem.innerText = text;
       elem.classList.add('show');
       setTimeout(() => { elem.classList.remove('show'); }, 1200);
-    }
-
-    function handlePeerData(data) {
-      switch (data.type) {
-        case 'start_countdown':
-          startCountdown();
-          break;
-        case 'board_sync':
-          renderEnemyBoard(data.grid, data.piece, data.ghostY);
-          enemyLinesDisplay.innerText = data.lines;
-          enemyScoreDisplay.innerText = data.score;
-          enemyGarbageBar.style.height = `${Math.min(100, (data.pendingGarbage / 20) * 100)}%`;
-          break;
-        case 'toast':
-          showToast(enemyToast, data.text);
-          break;
-        case 'garbage':
-          pendingGarbage += data.lines;
-          updateGarbageMeter();
-          break;
-        case 'gameover':
-          triggerGameOver(true);
-          break;
-        case 'rematch':
-          startCountdown();
-          break;
-      }
     }
 
     /* ==========================================================================
@@ -1076,7 +999,7 @@
     }
 
     /* ==========================================================================
-       6. ライン消去 & B2B
+       6. ライン消去・攻撃力（B2B / T-Spin）
        ========================================================================== */
     function clearLines(isTSpin) {
       let lines = 0;
@@ -1322,7 +1245,6 @@
     }
 
     function sendBoardSync() {
-      if (!conn || !conn.open) return;
       sendData('board_sync', {
         grid: myGrid,
         piece: currentPiece ? {
@@ -1527,7 +1449,7 @@
 
     connectBtn.addEventListener('click', () => {
       const targetId = targetIdInput.value.trim();
-      connectToPeer(targetId);
+      connectToRoom(targetId);
     });
 
     targetIdInput.addEventListener('keydown', (e) => {
@@ -1547,16 +1469,16 @@
     });
 
     copyIdBtn.addEventListener('click', () => {
-      if (!myShortId) return;
-      navigator.clipboard.writeText(myShortId).then(() => {
+      if (!myId) return;
+      navigator.clipboard.writeText(myId).then(() => {
         copyIdBtn.innerText = '完了!';
         setTimeout(() => { copyIdBtn.innerText = 'コピー'; }, 1500);
       });
     });
 
     copyUrlBtn.addEventListener('click', () => {
-      if (!myShortId) return;
-      const url = window.location.href.split('#')[0] + '#' + myShortId;
+      if (!myId) return;
+      const url = window.location.href.split('#')[0] + '#' + myId;
       navigator.clipboard.writeText(url).then(() => {
         copyUrlBtn.innerText = '完了!';
         setTimeout(() => { copyUrlBtn.innerText = '招待URL'; }, 1500);
@@ -1564,7 +1486,7 @@
     });
 
     window.addEventListener('load', () => {
-      initPeer();
+      initNetwork();
       render();
       renderEnemyBoard(createEmptyGrid(), null);
     });
