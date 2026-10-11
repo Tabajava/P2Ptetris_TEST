@@ -3,2472 +3,2583 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>超パワーサッカー</title>
+  <title>子宮防衛軍 (Shikyuu Defense Force - SDF)</title>
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-  <!-- MQTT.js CDN (NAT/ファイアウォール透過通信) -->
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- MQTT.js (CDN経由・NAT完全透過) -->
   <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=Zen+Maru+Gothic:wght@700;900&display=swap');
-
-    body {
-      font-family: 'Zen Maru Gothic', sans-serif;
-      touch-action: manipulation;
+    @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&display=swap');
+    * {
+      font-family: 'M PLUS Rounded 1c', 'Inter', sans-serif;
       user-select: none;
       -webkit-user-select: none;
-      background-color: #090d16;
+      touch-action: manipulation;
     }
-    .game-font {
-      font-family: 'Mochiy Pop One', cursive;
-    }
-    .comic-shadow {
-      box-shadow: 4px 4px 0px #090d16;
-    }
-    .comic-btn:active {
-      transform: translate(2px, 2px);
-      box-shadow: 2px 2px 0px #090d16;
-    }
-    .touch-btn {
-      touch-action: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-    #game-canvas-container {
+    body, html {
+      margin: 0;
+      padding: 0;
       width: 100%;
       height: 100%;
-      position: absolute;
-      inset: 0;
       overflow: hidden;
+      background-color: #0f172a;
     }
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: radial-gradient(circle at center, #2e1065 0%, #1e1b4b 55%, #0f172a 100%);
+    }
+    /* アニメーション用ユーティリティ */
+    @keyframes pulseGlow {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 15px rgba(236,72,153,0.6)); }
+      50% { transform: scale(1.04); filter: drop-shadow(0 0 30px rgba(244,63,94,0.9)); }
+    }
+    .pulse-glow { animation: pulseGlow 2.2s infinite ease-in-out; }
+    @keyframes popIn {
+      0% { transform: scale(0.6); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .pop-in { animation: popIn 0.28s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    /* カスタムスクロールバー */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(236,72,153,0.5); border-radius: 9999px; }
   </style>
 </head>
-<body class="bg-slate-950 text-white h-screen flex flex-col justify-between overflow-hidden select-none">
+<body class="text-white relative">
 
-  <!-- 1. TITLE SCREEN -->
-  <div id="screen-title" class="fixed inset-0 z-50 bg-gradient-to-br from-emerald-950 via-slate-950 to-blue-950 flex flex-col items-center justify-center p-4">
-    <div class="max-w-xl w-full text-center space-y-8 animate-fade-in">
-      <div class="space-y-3">
-        <div class="inline-block px-4 py-1 rounded-full bg-yellow-400 text-slate-950 font-black text-sm tracking-widest shadow-lg">
-          ⚽ ルール無用バイオレンスサッカー
+  <!-- メインCanvas (フルスクリーン) -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- ゲーム内 HUD オーバーレイ (プレイ中のみ表示) -->
+  <div id="gameHud" class="hidden absolute inset-0 pointer-events-none select-none">
+    <!-- 上部バー：ウェーブ情報・卵子HP・コイン -->
+    <div class="absolute top-3 left-3 right-3 flex flex-wrap justify-between items-center gap-2 pointer-events-auto">
+      <!-- 卵子HPゲージ -->
+      <div class="bg-slate-900/80 backdrop-blur-md border-2 border-pink-500/60 rounded-2xl px-4 py-2 flex items-center gap-3 shadow-xl">
+        <div class="w-10 h-10 rounded-full border-2 border-pink-400 bg-pink-900/50 flex items-center justify-center text-pink-300 text-xl overflow-hidden shrink-0">
+          <i class="fa-solid fa-gem"></i>
         </div>
-        <h1 class="game-font text-5xl md:text-6xl text-yellow-400 drop-shadow-[0_6px_10px_rgba(0,0,0,0.8)] tracking-wide">
-          超パワーサッカー
+        <div>
+          <div class="flex justify-between items-center text-xs font-bold text-pink-300 mb-1">
+            <span>卵子透明帯 (バリア)</span>
+            <span id="hudOvumHpText">100%</span>
+          </div>
+          <div class="w-36 sm:w-48 h-3.5 bg-slate-800 rounded-full overflow-hidden border border-pink-600/50">
+            <div id="hudOvumHpBar" class="h-full bg-gradient-to-r from-pink-500 to-rose-400 transition-all duration-200" style="width: 100%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 中央：ウェーブ情報 & 残り精子数 -->
+      <div class="bg-slate-900/85 backdrop-blur-md border-2 border-indigo-500/60 rounded-2xl px-5 py-2 flex flex-col items-center shadow-xl">
+        <div class="text-xs uppercase tracking-widest text-indigo-300 font-extrabold flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-ping"></span>
+          WAVE <span id="hudWaveNum" class="text-yellow-400 text-lg font-black ml-1">1</span>
+        </div>
+        <div class="text-xs text-slate-300 font-bold mt-0.5">
+          迫る精子: <span id="hudEnemyCount" class="text-rose-400 font-extrabold text-sm">0</span> 体
+        </div>
+      </div>
+
+      <!-- 右側：個人ステータス (HP・所持コイン・音量) -->
+      <div class="bg-slate-900/80 backdrop-blur-md border-2 border-cyan-500/60 rounded-2xl px-4 py-2 flex items-center gap-4 shadow-xl">
+        <!-- プレイヤーHP -->
+        <div>
+          <div class="flex justify-between items-center text-xs font-bold text-cyan-300 mb-1">
+            <span>自機 HP</span>
+            <span id="hudPlayerHpText">100/100</span>
+          </div>
+          <div class="w-28 sm:w-36 h-3 bg-slate-800 rounded-full overflow-hidden border border-cyan-600/50">
+            <div id="hudPlayerHpBar" class="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-200" style="width: 100%;"></div>
+          </div>
+        </div>
+
+        <!-- コイン -->
+        <div class="flex items-center gap-1.5 text-amber-400 font-black text-sm bg-amber-950/40 px-3 py-1 rounded-xl border border-amber-500/40">
+          <i class="fa-solid fa-coins text-yellow-300 animate-bounce"></i>
+          <span id="hudCoinCount">0</span>
+        </div>
+
+        <!-- 音声ミュートトグル -->
+        <button id="btnToggleAudio" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition border border-slate-600" title="効果音 ON/OFF">
+          <i class="fa-solid fa-volume-high"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- ダウン警報・救護中バナー -->
+    <div id="downBanner" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 bg-red-600/90 text-white font-black px-6 py-2 rounded-full border-2 border-white shadow-2xl animate-pulse text-sm">
+      <i class="fa-solid fa-triangle-exclamation mr-2"></i>戦闘不能！味方の救助を待て！
+    </div>
+
+    <!-- ミニ簡易操作ガイド -->
+    <div class="absolute bottom-3 left-3 text-xs text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800 backdrop-blur hidden sm:block">
+      移動: <span class="text-white font-bold">WASD / 矢印</span> | 照準: <span class="text-white font-bold">マウス</span> | 攻撃: <span class="text-white font-bold">クリック / 長押し</span>
+    </div>
+  </div>
+
+  <!-- ================= 画面1: タイトル & 部屋設定ビュー ================= -->
+  <div id="view-title" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-40 overflow-y-auto">
+    <div class="max-w-xl w-full bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-pink-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl pop-in my-auto">
+      
+      <!-- ロゴヘッダー -->
+      <div class="text-center mb-6">
+        <span class="inline-block px-3 py-1 rounded-full bg-pink-500/20 text-pink-400 font-extrabold text-xs uppercase tracking-widest border border-pink-500/30 mb-2">
+          防衛協力マルチプレイ (1〜8人)
+        </span>
+        <h1 class="text-4xl sm:text-5xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-rose-300 to-amber-300 drop-shadow">
+          子宮防衛軍
         </h1>
-        <p class="text-slate-300 text-sm md:text-base font-bold">
-          殴って、滑って、ゴールを動かし、ベンチを運べ！
+        <p class="text-xs sm:text-sm text-slate-400 mt-2 font-bold">
+          迫り来る数億の精子から受精卵を死守せよ！
         </p>
       </div>
 
-      <div class="bg-slate-900/90 border-4 border-yellow-400 rounded-3xl p-6 comic-shadow space-y-4">
+      <!-- 隊員ネーム入力 & 所持コイン -->
+      <div class="bg-slate-800/60 rounded-2xl p-4 border border-slate-700/60 mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex-1 min-w-[200px]">
+          <label class="block text-xs font-bold text-slate-400 mb-1">
+            <i class="fa-solid fa-user-tag text-pink-400 mr-1"></i>隊員コールサイン (名前)
+          </label>
+          <input id="inputPlayerName" type="text" maxlength="10" value="防衛兵01"
+            class="w-full bg-slate-900 border border-slate-600 focus:border-pink-500 focus:outline-none rounded-xl px-3 py-2 text-sm font-bold text-white transition">
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="bg-amber-950/60 border border-amber-500/40 rounded-xl px-3 py-2 flex items-center gap-2">
+            <i class="fa-solid fa-coins text-yellow-400 text-lg"></i>
+            <div>
+              <div class="text-[10px] text-amber-300 font-bold">所持コイン</div>
+              <div id="titleCoinCount" class="text-sm font-black text-amber-200">0</div>
+            </div>
+          </div>
+          <button id="btnOpenPhotoModal" class="p-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl border border-slate-500 text-pink-300 hover:text-white transition" title="ライオン画像設定">
+            <i class="fa-solid fa-image text-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- アクション：部屋を立てる / 参加する の2分割カード -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+        <!-- 部屋を立てる (ホスト) -->
+        <div class="bg-gradient-to-br from-indigo-950/60 to-purple-950/40 border border-indigo-500/50 rounded-2xl p-4 flex flex-col justify-between hover:border-indigo-400 transition shadow-lg">
+          <div>
+            <div class="flex items-center gap-2 text-indigo-300 font-black text-sm mb-1">
+              <i class="fa-solid fa-tower-broadcast text-indigo-400"></i>部屋を立てる
+            </div>
+            <p class="text-xs text-slate-400 mb-4 leading-relaxed">
+              新しいルームを自動発行し、部隊のホストとして仲間を招集します。
+            </p>
+          </div>
+          <button id="btnCreateRoom" class="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 font-black text-white text-sm rounded-xl shadow-lg shadow-indigo-700/30 active:scale-95 transition">
+            <i class="fa-solid fa-plus-circle mr-1.5"></i>新設して待機
+          </button>
+        </div>
+
+        <!-- 部屋に参加する (ゲスト) -->
+        <div class="bg-gradient-to-br from-emerald-950/60 to-teal-950/40 border border-emerald-500/50 rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-400 transition shadow-lg">
+          <div>
+            <div class="flex items-center gap-2 text-emerald-300 font-black text-sm mb-1">
+              <i class="fa-solid fa-right-to-bracket text-emerald-400"></i>部屋に参加する
+            </div>
+            <p class="text-xs text-slate-400 mb-2 leading-relaxed">
+              友だちから教えてもらったルームコードを入力して合流します。
+            </p>
+            <input id="inputRoomCode" type="text" maxlength="8" placeholder="例: SDF88"
+              class="w-full uppercase bg-slate-900 border border-slate-600 focus:border-emerald-500 focus:outline-none rounded-xl px-3 py-2 text-sm font-black text-center text-white mb-3 tracking-widest">
+          </div>
+          <button id="btnJoinRoom" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-black text-white text-sm rounded-xl shadow-lg shadow-emerald-700/30 active:scale-95 transition">
+            <i class="fa-solid fa-arrow-right-to-bracket mr-1.5"></i>参戦する
+          </button>
+        </div>
+      </div>
+
+      <!-- 兵舎（キャラ解放・バッジガチャ）へのアクセスボタン -->
+      <button id="btnOpenBarracks" class="w-full py-3 bg-slate-800 hover:bg-slate-700 border border-pink-500/40 rounded-2xl font-black text-pink-300 hover:text-pink-100 flex items-center justify-center gap-2 transition shadow-md">
+        <i class="fa-solid fa-shield-halved text-pink-400"></i>
+        <span>兵舎・装備・バッジガチャへ</span>
+      </button>
+
+      <!-- 接続状況インジケーター -->
+      <div id="netStatusTitle" class="mt-4 text-center text-xs text-slate-500 font-bold flex items-center justify-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+        HiveMQ Broker 待機中...
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 画面2: 作戦待機ロビー ================= -->
+  <div id="view-lobby" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-40 overflow-y-auto">
+    <div class="max-w-2xl w-full bg-slate-900 border-2 border-indigo-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl pop-in my-auto">
+      
+      <!-- ロビー上部ヘッダー -->
+      <div class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800 mb-5">
         <div>
-          <label class="block text-xs font-black text-slate-300 text-left mb-1">プレイヤー名</label>
-          <input type="text" id="title-player-name" maxlength="10" value="エースストライカー" 
-                 class="w-full bg-slate-950 border-2 border-slate-700 rounded-xl px-4 py-2.5 text-yellow-300 font-bold focus:outline-none focus:border-yellow-400 text-center">
+          <span class="text-xs uppercase tracking-widest text-indigo-400 font-extrabold">作戦司令室</span>
+          <h2 class="text-2xl font-black text-white flex items-center gap-2">
+            <i class="fa-solid fa-campground text-indigo-400"></i>出撃待機ロビー
+          </h2>
         </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-          <button id="btn-start-solo" class="comic-btn bg-amber-400 hover:bg-amber-300 text-slate-950 font-black py-3 rounded-2xl border-2 border-black text-base comic-shadow flex items-center justify-center space-x-2">
-            <i class="fa-solid fa-robot"></i>
-            <span>ひとりで遊ぶ (vs AI)</span>
+        <!-- ルームコード表示とコピー -->
+        <div class="flex items-center gap-2 bg-slate-800/90 border border-indigo-500/40 rounded-2xl px-4 py-2">
+          <div>
+            <div class="text-[10px] text-slate-400 font-bold uppercase">ROOM CODE</div>
+            <div id="lobbyRoomCode" class="text-lg font-black text-indigo-300 tracking-wider">------</div>
+          </div>
+          <button id="btnCopyCode" class="ml-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-black transition" title="コードをコピー">
+            <i class="fa-solid fa-copy mr-1"></i>コピー
           </button>
-          <button id="btn-create-lobby" class="comic-btn bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-2xl border-2 border-black text-base comic-shadow flex items-center justify-center space-x-2">
-            <i class="fa-solid fa-house-chimney-window"></i>
-            <span>ルームを作成</span>
-          </button>
-        </div>
-
-        <div class="pt-2 border-t border-slate-800 flex items-center gap-2">
-          <input type="text" id="input-join-code" placeholder="4桁コード (例: 1234)" maxlength="6" 
-                 class="flex-1 bg-slate-950 border-2 border-slate-700 rounded-xl px-3 py-2 text-white font-black text-center focus:outline-none focus:border-emerald-400 uppercase text-sm">
-          <button id="btn-join-lobby" class="comic-btn bg-blue-500 hover:bg-blue-400 text-white font-black px-5 py-2 rounded-xl border-2 border-black text-sm comic-shadow">
-            参加
+          <button id="btnCopyUrl" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-black transition" title="招待リンクをコピー">
+            <i class="fa-solid fa-link mr-1"></i>招待URL
           </button>
         </div>
       </div>
 
-      <div class="flex justify-center items-center space-x-4 text-xs text-slate-400 font-semibold">
-        <span><i class="fa-solid fa-keyboard mr-1"></i>移動: WASD / 矢印</span>
-        <span>👊 パンチ: [Z]</span>
-        <span>💨 スライド: [X]</span>
-        <span>💥 タックル: [C]</span>
-        <span>🪑 掴む: [V]</span>
+      <!-- 参加メンバー一覧 (最大8名) -->
+      <div class="mb-6">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-bold text-slate-400">
+            <i class="fa-solid fa-users text-pink-400 mr-1.5"></i>配属隊員一覧 (<span id="lobbyMemberCount">1</span>/8)
+          </span>
+          <span class="text-xs text-indigo-400 font-bold">1人でも出撃可能！</span>
+        </div>
+        <div id="lobbyMemberList" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto pr-1">
+          <!-- JSで動的生成 -->
+        </div>
+      </div>
+
+      <!-- 出撃ボタン / ゲスト待機表示 -->
+      <div class="pt-2 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <button id="btnLeaveLobby" class="w-full sm:w-auto px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-black transition">
+          <i class="fa-solid fa-arrow-left mr-1.5"></i>ロビーから抜ける
+        </button>
+
+        <!-- ホストにのみ有効な開始ボタン -->
+        <div id="hostControlBox" class="w-full sm:w-auto flex-1 flex justify-end">
+          <button id="btnStartGame" class="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-pink-600 via-rose-500 to-amber-500 hover:from-pink-500 hover:to-amber-400 font-black text-white text-base rounded-2xl shadow-xl shadow-pink-600/30 active:scale-95 transition">
+            <i class="fa-solid fa-play mr-2"></i>作戦開始
+          </button>
+        </div>
+        <!-- ゲスト用待機メッセージ -->
+        <div id="guestWaitBox" class="hidden text-center text-sm font-bold text-amber-300 py-3 flex items-center justify-center gap-2">
+          <i class="fa-solid fa-spinner fa-spin text-pink-400 text-base"></i>
+          <span>ホストの作戦開始合図を待機中...</span>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 2. MULTIPLAYER LOBBY SCREEN -->
-  <div id="screen-lobby" class="fixed inset-0 z-50 bg-slate-950/95 flex flex-col items-center justify-center p-4 hidden">
-    <div class="bg-slate-900 border-4 border-emerald-400 rounded-3xl max-w-2xl w-full p-6 comic-shadow space-y-5">
-      <div class="flex items-center justify-between border-b-2 border-slate-800 pb-3">
-        <div class="flex items-center space-x-3">
-          <h2 class="game-font text-2xl md:text-3xl text-emerald-400">🏟️ 試合待機ロビー</h2>
-          <span id="lobby-host-indicator" class="text-xs bg-yellow-500 text-slate-950 font-black px-2 py-0.5 rounded-full">ホスト</span>
+  <!-- ================= 画面3: 全画面同期 3-2-1 カウントダウン ================= -->
+  <div id="countdownOverlay" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-lg flex flex-col items-center justify-center z-50 select-none">
+    <div id="countdownNumber" class="text-8xl sm:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 via-pink-400 to-rose-500 drop-shadow-2xl scale-125 transition-transform duration-300">
+      3
+    </div>
+    <div class="text-base sm:text-xl font-black text-pink-300 mt-4 tracking-widest uppercase">
+      防衛網展開まで...
+    </div>
+  </div>
+
+  <!-- ================= 画面4: 兵舎・キャラクター解放・バッジガチャ モーダル ================= -->
+  <div id="modal-barracks" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto">
+    <div class="max-w-3xl w-full bg-slate-900 border-2 border-pink-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl pop-in my-auto">
+      
+      <!-- モーダルヘッダー -->
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
+        <div>
+          <span class="text-xs uppercase tracking-widest text-pink-400 font-extrabold">兵装開発本部</span>
+          <h2 class="text-2xl font-black text-white flex items-center gap-2">
+            <i class="fa-solid fa-person-military-rifle text-pink-400"></i>兵舎・バッジ研究所
+          </h2>
         </div>
-        <div class="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
-          <span class="text-xs text-slate-400 font-bold">合言葉:</span>
-          <span id="lobby-code-display" class="game-font text-xl text-yellow-300 tracking-wider">----</span>
-          <button id="btn-copy-code" class="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded border border-slate-700" title="コードをコピー">
-            <i class="fa-regular fa-copy"></i>
-          </button>
-          <button id="btn-copy-url" class="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded border border-slate-700" title="招待URLをコピー">
-            <i class="fa-solid fa-link"></i>
+        <div class="flex items-center gap-3">
+          <div class="bg-amber-950/70 border border-amber-500/40 rounded-xl px-3 py-1.5 flex items-center gap-2">
+            <i class="fa-solid fa-coins text-yellow-400"></i>
+            <span id="barracksCoinCount" class="font-black text-amber-300">0</span>
+          </div>
+          <button id="btnCloseBarracks" class="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition">
+            <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
       </div>
 
-      <!-- Teams Display -->
-      <div class="grid grid-cols-2 gap-4">
-        <!-- Blue Team -->
-        <div class="bg-blue-950/50 border-2 border-blue-500 rounded-2xl p-3">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-black text-blue-400 text-sm flex items-center">
-              <span class="w-3 h-3 rounded-full bg-blue-500 mr-1.5"></span>青組
-            </h3>
-            <button id="btn-join-blue" class="text-[11px] bg-blue-600 hover:bg-blue-500 font-bold px-2 py-0.5 rounded text-white">
-              青に入る
-            </button>
-          </div>
-          <div id="lobby-team-blue-list" class="space-y-1.5 min-h-[90px] text-xs"></div>
-        </div>
-
-        <!-- Red Team -->
-        <div class="bg-rose-950/50 border-2 border-rose-500 rounded-2xl p-3">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-black text-rose-400 text-sm flex items-center">
-              <span class="w-3 h-3 rounded-full bg-rose-500 mr-1.5"></span>赤組
-            </h3>
-            <button id="btn-join-red" class="text-[11px] bg-rose-600 hover:bg-rose-500 font-bold px-2 py-0.5 rounded text-white">
-              赤に入る
-            </button>
-          </div>
-          <div id="lobby-team-red-list" class="space-y-1.5 min-h-[90px] text-xs"></div>
+      <!-- 8兵種のグリッド -->
+      <div class="mb-6">
+        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">兵種を選択・解放</h3>
+        <div id="barracksClassGrid" class="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-64 overflow-y-auto pr-1">
+          <!-- JSで8兵種を動的描画 -->
         </div>
       </div>
 
-      <!-- Host Settings -->
-      <div id="lobby-host-controls" class="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-3">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-black text-amber-300">⚙️ 試合設定 (ホストのみ変更可能)</span>
-          <button id="btn-shuffle-teams" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg border border-slate-700 font-bold">
-            <i class="fa-solid fa-shuffle mr-1"></i>チーム自動シャッフル
+      <!-- 選択中キャラのバッジスロット ＆ ガチャ -->
+      <div class="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-slate-300">
+              <i class="fa-solid fa-certificate text-yellow-400 mr-1"></i>装着バッジ (3スロット)
+            </span>
+            <span id="selectedClassBadgeLabel" class="text-xs font-black text-pink-400 bg-pink-950/60 px-2 py-0.5 rounded-md border border-pink-500/40">素手兵</span>
+          </div>
+          <button id="btnRollBadgeGacha" class="px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition active:scale-95 flex items-center gap-1.5">
+            <i class="fa-solid fa-dice text-sm"></i>
+            <span>3枠一括ガチャ (50コイン)</span>
           </button>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-            <div class="flex items-center justify-between mb-1">
-              <label for="chk-enable-time" class="text-[11px] text-slate-300 font-bold flex items-center cursor-pointer">
-                <input type="checkbox" id="chk-enable-time" checked class="mr-1.5 accent-emerald-500 w-3.5 h-3.5">
-                制限時間
-              </label>
+
+        <!-- 3つのバッジカード -->
+        <div id="badgeSlotContainer" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <!-- JSで描画 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 画面5: オス＆メスライオン 写真設定モーダル ================= -->
+  <div id="modal-photos" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto">
+    <div class="max-w-md w-full bg-slate-900 border-2 border-amber-500/60 rounded-3xl p-6 shadow-2xl pop-in my-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+        <h3 class="text-lg font-black text-amber-300 flex items-center gap-2">
+          <i class="fa-solid fa-camera-retro"></i>ライオン写真アサイン設定
+        </h3>
+        <button id="btnClosePhotoModal" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <p class="text-xs text-slate-400 mb-4">
+        アップロードした画像は自動で中央正方形が検出され、精子の頭（雄ライオン）および卵子の核（雌ライオン）に円形クロップされて描画されます。
+      </p>
+
+      <div class="space-y-4">
+        <!-- 雄ライオン写真 (精子) -->
+        <div class="bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
+          <label class="block text-xs font-bold text-amber-300 mb-1">
+            <i class="fa-solid fa-mars mr-1"></i>精子の頭部 (雄ライオン写真)
+          </label>
+          <div class="flex items-center gap-3">
+            <div id="previewMaleLion" class="w-12 h-12 rounded-full border-2 border-amber-400 overflow-hidden bg-slate-950 flex items-center justify-center text-amber-500 text-xs font-bold shrink-0">
+              ♂
             </div>
-            <select id="lobby-time-select" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-emerald-400">
-              <option value="60">1分 (スピード決戦)</option>
-              <option value="120">2分</option>
-              <option value="180" selected>3分 (標準)</option>
-              <option value="300">5分 (じっくり)</option>
-            </select>
+            <input id="inputMaleLion" type="file" accept="image/*" class="text-xs text-slate-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-amber-600 file:text-white hover:file:bg-amber-500 cursor-pointer">
           </div>
+        </div>
 
-          <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-            <div class="flex items-center justify-between mb-1">
-              <label for="chk-enable-goals" class="text-[11px] text-slate-300 font-bold flex items-center cursor-pointer">
-                <input type="checkbox" id="chk-enable-goals" class="mr-1.5 accent-emerald-500 w-3.5 h-3.5">
-                目標ゴール数
-              </label>
+        <!-- 雌ライオン写真 (卵子) -->
+        <div class="bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
+          <label class="block text-xs font-bold text-pink-300 mb-1">
+            <i class="fa-solid fa-venus mr-1"></i>卵子の核 (雌ライオン写真)
+          </label>
+          <div class="flex items-center gap-3">
+            <div id="previewFemaleLion" class="w-12 h-12 rounded-full border-2 border-pink-400 overflow-hidden bg-slate-950 flex items-center justify-center text-pink-400 text-xs font-bold shrink-0">
+              ♀
             </div>
-            <select id="lobby-target-goals-select" disabled class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-emerald-400 opacity-50">
-              <option value="2">2点先取</option>
-              <option value="3" selected>3点先取</option>
-              <option value="5">5点先取</option>
-              <option value="7">7点先取</option>
-              <option value="10">10点先取</option>
-            </select>
-          </div>
-
-          <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-            <label class="block text-[11px] text-slate-300 font-bold mb-1">ボール数制限</label>
-            <select id="lobby-ball-select" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-emerald-400">
-              <option value="1">1個 (普通)</option>
-              <option value="2">最大2個</option>
-              <option value="3" selected>最大3個 (大乱闘)</option>
-              <option value="5">最大5個 (カオス)</option>
-            </select>
+            <input id="inputFemaleLion" type="file" accept="image/*" class="text-xs text-slate-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-pink-600 file:text-white hover:file:bg-pink-500 cursor-pointer">
           </div>
         </div>
       </div>
 
-      <div class="flex items-center justify-between pt-2">
-        <button id="btn-leave-lobby" class="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-xl">
-          <i class="fa-solid fa-arrow-left mr-1"></i>タイトルへ
-        </button>
-        <button id="btn-start-game-match" class="comic-btn bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black px-8 py-3 rounded-2xl border-2 border-black text-base comic-shadow flex items-center space-x-2">
-          <i class="fa-solid fa-play"></i>
-          <span>ゲームスタート！</span>
+      <button id="btnSavePhotos" class="w-full mt-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition">
+        完了して閉じる
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= 画面6: ウェーブ間インターミッション補給ショップ ================= -->
+  <div id="modal-wave-shop" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-40 overflow-y-auto">
+    <div class="max-w-2xl w-full bg-slate-900 border-2 border-emerald-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl pop-in my-auto">
+      
+      <!-- ヘッダー -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+        <div>
+          <span class="text-xs uppercase tracking-widest text-emerald-400 font-extrabold">WAVE CLEAR! 補給物資</span>
+          <h2 class="text-2xl font-black text-white flex items-center gap-2">
+            <i class="fa-solid fa-cart-shopping text-emerald-400"></i>インターミッション補給処
+          </h2>
+        </div>
+        <div class="bg-amber-950/70 border border-amber-500/40 rounded-xl px-4 py-1.5 flex items-center gap-2">
+          <i class="fa-solid fa-coins text-yellow-400"></i>
+          <span id="waveShopCoinCount" class="font-black text-amber-300">0</span>
+        </div>
+      </div>
+
+      <p class="text-xs text-slate-400 mb-4">
+        この試合限定の強化物資です。個人アイテムのほか、部隊全員に恩恵があるグローバル支援兵器も購入できます。
+      </p>
+
+      <!-- ショップアイテム一覧 (動的生成) -->
+      <div id="waveShopItemGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6 max-h-72 overflow-y-auto pr-1">
+        <!-- JSで描画 -->
+      </div>
+
+      <!-- 次ウェーブ開始ボタン -->
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+        <div class="text-xs text-slate-400 font-bold">
+          次のウェーブ: <span id="nextWaveNumLabel" class="text-yellow-400 font-black">WAVE 2</span>
+        </div>
+        <button id="btnNextWaveStart" class="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 font-black text-white text-sm rounded-xl shadow-lg shadow-emerald-700/30 transition active:scale-95">
+          <i class="fa-solid fa-forward-step mr-1.5"></i>次ウェーブへ進む
         </button>
       </div>
     </div>
   </div>
 
-  <!-- 3. MATCH RESULT SCREEN -->
-  <div id="screen-result" class="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4 hidden">
-    <div class="bg-slate-900 border-4 border-yellow-400 rounded-3xl max-w-lg w-full p-6 comic-shadow text-center space-y-5">
-      <div class="space-y-1">
-        <span class="text-xs bg-amber-500 text-slate-950 font-black px-3 py-0.5 rounded-full uppercase">試合終了</span>
-        <h2 id="result-headline" class="game-font text-3xl md:text-4xl text-yellow-300 drop-shadow">
-          青組の完全勝利！
-        </h2>
+  <!-- ================= 画面7: 受精成立 (ゲームオーバー) モーダル ================= -->
+  <div id="modal-gameover" class="hidden absolute inset-0 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-4 z-50 select-none">
+    <div class="max-w-md w-full text-center pop-in">
+      <div class="w-24 h-24 mx-auto mb-4 rounded-full border-4 border-rose-500/80 overflow-hidden shadow-2xl relative pulse-glow">
+        <canvas id="lionGameOverCanvas" width="96" height="96" class="w-full h-full"></canvas>
       </div>
+      <h2 class="text-3xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-pink-400 to-amber-300 mb-2">
+        生命の神秘、大勝利
+      </h2>
+      <p class="text-rose-400 text-sm font-black mb-1">【受精が成立してしまいました】</p>
+      <p class="text-xs text-slate-400 mb-6">
+        一匹の精子が防衛網を突破し、卵子の核と永遠の結合を果たしました。<br>子宮防衛軍は任務失敗により解散となります。
+      </p>
 
-      <div class="flex items-center justify-center space-x-6 bg-slate-950 border-2 border-slate-800 rounded-2xl py-4">
-        <div class="text-center">
-          <div class="text-xs text-blue-400 font-bold mb-1">青組</div>
-          <div id="result-score-blue" class="game-font text-5xl text-blue-400 font-black">0</div>
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 mb-6 text-left text-xs space-y-1.5">
+        <div class="flex justify-between text-slate-400">
+          <span>防衛到達ウェーブ:</span>
+          <span id="goWaveText" class="font-black text-white">Wave 1</span>
         </div>
-        <div class="text-slate-600 text-3xl font-black">-</div>
-        <div class="text-center">
-          <div class="text-xs text-rose-400 font-bold mb-1">赤組</div>
-          <div id="result-score-red" class="game-font text-5xl text-rose-500 font-black">0</div>
-        </div>
-      </div>
-
-      <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800 text-xs space-y-1 text-slate-300 text-left">
-        <div class="flex justify-between">
-          <span>💥 最多タックル数:</span>
-          <span id="result-stat-tackles" class="font-bold text-yellow-400">0回</span>
-        </div>
-        <div class="flex justify-between">
-          <span>🟨 審判への暴力回数:</span>
-          <span id="result-stat-ref-punches" class="font-bold text-yellow-400">0回</span>
-        </div>
-        <div class="flex justify-between">
-          <span>🧯 消火器乱入回数:</span>
-          <span id="result-stat-intruders" class="font-bold text-rose-400">0回</span>
+        <div class="flex justify-between text-slate-400">
+          <span>獲得コイン:</span>
+          <span id="goCoinsText" class="font-black text-amber-300">+0 コイン</span>
         </div>
       </div>
 
-      <button id="btn-return-to-title" class="comic-btn w-full bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black py-3 rounded-2xl border-2 border-black text-base comic-shadow">
-        タイトルに戻る
+      <button id="btnReturnToTitle" class="w-full py-3.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 font-black text-white text-sm rounded-2xl shadow-xl transition active:scale-95">
+        <i class="fa-solid fa-rotate-left mr-2"></i>司令部（タイトル）へ帰還
       </button>
     </div>
   </div>
-
-  <!-- IN-GAME TOP HUD -->
-  <header id="in-game-header" class="w-full px-4 py-2 flex items-center justify-between z-30 pointer-events-none">
-    <div class="flex items-center space-x-2 pointer-events-auto">
-      <h1 class="game-font text-lg md:text-2xl text-yellow-400 drop-shadow tracking-wider">
-        ⚽ 超パワーサッカー
-      </h1>
-      <button id="btn-sound-toggle" class="comic-btn bg-slate-900/90 border border-slate-700 text-yellow-300 px-2 py-1 rounded-xl text-xs font-bold" title="サウンド切替">
-        <i class="fa-solid fa-volume-high" id="sound-icon"></i>
-      </button>
-    </div>
-
-    <!-- Match Score & Timer Display -->
-    <div class="flex items-center space-x-3 bg-slate-900/90 border-2 border-slate-700 px-3 py-1.5 rounded-2xl shadow-xl pointer-events-auto">
-      <div class="flex items-center space-x-2.5 font-black">
-        <span class="text-blue-400 text-xs md:text-sm">青</span>
-        <span id="score-blue" class="text-2xl md:text-3xl font-black text-blue-400 game-font">0</span>
-        <span class="text-slate-500 text-base">-</span>
-        <span id="score-red" class="text-2xl md:text-3xl font-black text-rose-500 game-font">0</span>
-        <span class="text-rose-400 text-xs md:text-sm">赤</span>
-      </div>
-      <div class="h-6 w-0.5 bg-slate-700"></div>
-      <div class="flex items-center space-x-1.5">
-        <i class="fa-solid fa-stopwatch text-amber-400 text-xs"></i>
-        <span id="match-timer" class="game-font text-xs md:text-sm text-amber-300">03:00</span>
-      </div>
-      <div id="target-goals-badge" class="hidden text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-600 px-1.5 py-0.5 rounded font-black">
-        目標: 3点先取
-      </div>
-    </div>
-
-    <!-- Status -->
-    <div class="flex items-center space-x-2 pointer-events-auto">
-      <button id="btn-force-end-match" class="hidden comic-btn bg-rose-600 hover:bg-rose-500 text-white font-black px-3 py-1 rounded-xl text-xs border-2 border-black shadow">
-        <i class="fa-solid fa-flag-checkered mr-1"></i>強制終了
-      </button>
-
-      <div class="hidden sm:flex items-center space-x-2 bg-slate-900/90 border border-slate-700 px-3 py-1.5 rounded-2xl text-xs font-bold">
-        <span class="text-yellow-400">🟨 カード:</span>
-        <span id="hud-yellow-count" class="text-white font-black">0/10</span>
-        <div id="hud-intruder-badge" class="hidden ml-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[10px] animate-pulse">
-          乱入中🧯
-        </div>
-      </div>
-    </div>
-  </header>
-
-  <!-- MAIN GAME VIEWPORT -->
-  <main class="w-full flex-1 relative overflow-hidden bg-slate-950 flex items-center justify-center">
-    <div id="game-canvas-container">
-      <canvas id="gameCanvas" class="w-full h-full block"></canvas>
-    </div>
-
-    <!-- Floating Minimap Overlay -->
-    <div id="minimap-container" class="absolute top-3 right-4 z-20 pointer-events-none bg-slate-950/80 backdrop-blur-md border-2 border-slate-700 rounded-2xl p-1.5 shadow-2xl">
-      <canvas id="minimapCanvas" width="200" height="115" class="rounded-xl block"></canvas>
-      <div class="flex justify-between items-center px-1 pt-1 text-[9px] text-slate-400 font-bold">
-        <span>🟦青 🟥赤 ⚪球</span>
-        <span>🦓審判 🟨備品</span>
-      </div>
-    </div>
-
-    <!-- Center Big Whistle / Countdown Overlay -->
-    <div id="big-alert-container" class="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
-      <div id="big-alert-box" class="bg-black/90 border-4 border-yellow-400 rounded-3xl px-8 py-5 text-center transform scale-90 opacity-0 transition-all duration-150 comic-shadow">
-        <h2 id="big-alert-title" class="game-font text-4xl md:text-6xl text-yellow-300 drop-shadow">READY</h2>
-        <p id="big-alert-subtitle" class="text-sm md:text-base text-white font-bold mt-1"></p>
-      </div>
-    </div>
-
-    <!-- Referee KO Banner -->
-    <div id="ref-status-banner" class="absolute top-3 left-4 hidden z-20 bg-yellow-400 text-slate-950 font-black px-3 py-1.5 rounded-xl text-xs border-2 border-black shadow-lg animate-bounce pointer-events-none">
-      ⚡ 審判気絶中！5秒間カード無効（無法地帯）！
-    </div>
-  </main>
-
-  <!-- BOTTOM ACTION BAR -->
-  <footer id="in-game-footer" class="w-full px-3 py-2 flex flex-col md:flex-row items-center justify-between gap-2 z-30 bg-slate-950/90 border-t border-slate-900">
-    <div class="w-full flex items-center justify-center md:justify-between gap-2">
-      <div class="hidden lg:flex items-center space-x-2 text-xs text-slate-400 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800">
-        <i class="fa-solid fa-gamepad text-yellow-400"></i>
-        <span>移動: <b class="text-white">WASD / 矢印</b></span>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="flex items-center gap-1.5 sm:gap-2.5 w-full sm:w-auto justify-center">
-        <!-- Punch [Z] -->
-        <button id="btn-punch" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-amber-400 to-amber-600 border-2 border-black text-slate-950 px-3 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[65px]">
-          <div id="cd-punch" class="absolute inset-0 bg-slate-950/65 transition-all duration-75 origin-top scale-y-0 pointer-events-none"></div>
-          <span class="text-base">👊</span>
-          <span class="text-[10px] font-black uppercase">パンチ [Z]</span>
-          <span class="text-[8px] text-amber-950 font-black">無罪/審判KO</span>
-        </button>
-
-        <!-- Slide [X] -->
-        <button id="btn-slide" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-cyan-400 to-cyan-600 border-2 border-black text-slate-950 px-3 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[65px]">
-          <div id="cd-slide" class="absolute inset-0 bg-slate-950/65 transition-all duration-75 origin-top scale-y-0 pointer-events-none"></div>
-          <span class="text-base">💨</span>
-          <span class="text-[10px] font-black uppercase">スライド [X]</span>
-          <span class="text-[8px] text-cyan-950 font-black">急加速/減速</span>
-        </button>
-
-        <!-- Tackle [C] -->
-        <button id="btn-tackle" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-rose-500 to-rose-700 border-2 border-black text-white px-3 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[65px]">
-          <div id="cd-tackle" class="absolute inset-0 bg-slate-950/65 transition-all duration-75 origin-top scale-y-0 pointer-events-none"></div>
-          <span class="text-base">💥</span>
-          <span class="text-[10px] font-black uppercase">タックル [C]</span>
-          <span class="text-[8px] text-rose-200 font-black">5秒気絶/大隙</span>
-        </button>
-
-        <!-- Grab / Carry [V] -->
-        <button id="btn-grab" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-emerald-500 to-emerald-700 border-2 border-black text-white px-3 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[70px]">
-          <span class="text-base" id="grab-icon">🪑</span>
-          <span class="text-[10px] font-black uppercase" id="grab-label">掴む [V]</span>
-          <span class="text-[8px] text-emerald-200 font-black" id="grab-sub">備品/ゴール移動</span>
-        </button>
-
-        <!-- Extinguisher [Space] -->
-        <button id="btn-extinguisher" class="touch-btn comic-btn flex-1 sm:flex-none flex flex-col items-center justify-center bg-gradient-to-b from-purple-500 to-purple-700 border-2 border-black text-white px-3.5 py-1.5 rounded-xl shadow comic-shadow relative overflow-hidden min-w-[75px] opacity-40">
-          <div id="cd-extinguisher" class="absolute inset-0 bg-slate-950/65 transition-all duration-75 origin-top scale-y-0 pointer-events-none"></div>
-          <span class="text-base">🧯</span>
-          <span class="text-[10px] font-black uppercase">消火器 [Space]</span>
-          <span class="text-[8px] text-purple-200 font-black">乱入時のみ (CD18s)</span>
-        </button>
-      </div>
-
-      <div id="hud-carrying-tag" class="hidden text-xs bg-emerald-600 text-slate-950 font-black px-3 py-1 rounded-xl border border-black animate-pulse">
-        📦 備品運搬中 (速度低下)
-      </div>
-    </div>
-  </footer>
 
   <script>
-    /* ==========================================================================
-       1. サウンドエフェクト (Web Audio API)
-       ========================================================================== */
+    /* =========================================================
+     *  子宮防衛軍 (Shikyuu Defense Force - SDF)
+     *  完全自己完結型 マルチプレイヤー Web アプリケーション
+     * ========================================================= */
+
+    // --- Web Audio API サウンドシンセサイザー (外部音源ゼロ依存) ---
     class SoundFX {
       constructor() {
         this.ctx = null;
-        this.enabled = true;
+        this.muted = false;
       }
       init() {
         if (!this.ctx) {
           const AudioContext = window.AudioContext || window.webkitAudioContext;
-          if (AudioContext) this.ctx = new AudioContext();
+          if (AudioContext) {
+            this.ctx = new AudioContext();
+          }
         }
         if (this.ctx && this.ctx.state === 'suspended') {
           this.ctx.resume();
         }
       }
-      playKick() {
-        if (!this.enabled || !this.ctx) return;
+      play(type) {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
         try {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(140, this.ctx.currentTime);
-          osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.12);
-          gain.gain.setValueAtTime(0.7, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
-          osc.connect(gain);
-          gain.connect(this.ctx.destination);
-          osc.start();
-          osc.stop(this.ctx.currentTime + 0.12);
-        } catch(e){}
-      }
-      playPunch() {
-        if (!this.enabled || !this.ctx) return;
-        try {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(260, this.ctx.currentTime);
-          osc.frequency.exponentialRampToValueAtTime(65, this.ctx.currentTime + 0.15);
-          gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
-          osc.connect(gain);
-          gain.connect(this.ctx.destination);
-          osc.start();
-          osc.stop(this.ctx.currentTime + 0.15);
-        } catch(e){}
-      }
-      playTackle() {
-        if (!this.enabled || !this.ctx) return;
-        try {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          osc.type = 'square';
-          osc.frequency.setValueAtTime(120, this.ctx.currentTime);
-          osc.frequency.exponentialRampToValueAtTime(28, this.ctx.currentTime + 0.35);
-          gain.gain.setValueAtTime(0.85, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.35);
-          osc.connect(gain);
-          gain.connect(this.ctx.destination);
-          osc.start();
-          osc.stop(this.ctx.currentTime + 0.35);
-        } catch(e){}
-      }
-      playSlide() {
-        if (!this.enabled || !this.ctx) return;
-        try {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(420, this.ctx.currentTime);
-          osc.frequency.exponentialRampToValueAtTime(140, this.ctx.currentTime + 0.22);
-          gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.22);
-          osc.connect(gain);
-          gain.connect(this.ctx.destination);
-          osc.start();
-          osc.stop(this.ctx.currentTime + 0.22);
-        } catch(e){}
-      }
-      playWhistle() {
-        if (!this.enabled || !this.ctx) return;
-        try {
-          const t = this.ctx.currentTime;
-          const osc1 = this.ctx.createOscillator();
-          const osc2 = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          osc1.type = 'triangle';
-          osc2.type = 'sine';
-          osc1.frequency.setValueAtTime(2500, t);
-          osc2.frequency.setValueAtTime(2780, t);
-          gain.gain.setValueAtTime(0.35, t);
-          gain.gain.setValueAtTime(0.05, t + 0.1);
-          gain.gain.setValueAtTime(0.35, t + 0.16);
-          gain.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
-          osc1.connect(gain);
-          osc2.connect(gain);
-          gain.connect(this.ctx.destination);
-          osc1.start(t);
-          osc2.start(t);
-          osc1.stop(t + 0.5);
-          osc2.stop(t + 0.5);
-        } catch(e){}
-      }
-      playCountdownBeep(isHigh = false) {
-        if (!this.enabled || !this.ctx) return;
-        try {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(isHigh ? 987 : 523, this.ctx.currentTime);
-          gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + (isHigh ? 0.6 : 0.2));
-          osc.connect(gain);
-          gain.connect(this.ctx.destination);
-          osc.start();
-          osc.stop(this.ctx.currentTime + (isHigh ? 0.6 : 0.2));
-        } catch(e){}
-      }
-      playGoalSiren() {
-        if (!this.enabled || !this.ctx) return;
-        try {
-          const freqs = [350, 523, 659, 880];
-          freqs.forEach((f, idx) => {
+          if (type === 'hit') {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(140, t);
+            osc.frequency.exponentialRampToValueAtTime(40, t + 0.08);
+            gain.gain.setValueAtTime(0.25, t);
+            gain.gain.linearRampToValueAtTime(0.01, t + 0.08);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.09);
+          } else if (type === 'shoot') {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(420, t);
+            osc.frequency.exponentialRampToValueAtTime(90, t + 0.07);
+            gain.gain.setValueAtTime(0.12, t);
+            gain.gain.linearRampToValueAtTime(0.01, t + 0.07);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.08);
+          } else if (type === 'magic') {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(320, t);
+            osc.frequency.linearRampToValueAtTime(680, t + 0.12);
+            gain.gain.setValueAtTime(0.15, t);
+            gain.gain.linearRampToValueAtTime(0.01, t + 0.12);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.13);
+          } else if (type === 'explode') {
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
             osc.type = 'sawtooth';
-            const startTime = this.ctx.currentTime + idx * 0.12;
-            osc.frequency.setValueAtTime(f, startTime);
-            gain.gain.setValueAtTime(0.4, startTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.45);
+            osc.frequency.setValueAtTime(120, t);
+            osc.frequency.exponentialRampToValueAtTime(30, t + 0.22);
+            gain.gain.setValueAtTime(0.3, t);
+            gain.gain.linearRampToValueAtTime(0.01, t + 0.22);
             osc.connect(gain);
             gain.connect(this.ctx.destination);
-            osc.start(startTime);
-            osc.stop(startTime + 0.45);
-          });
-        } catch(e){}
-      }
-      playExtinguisher() {
-        if (!this.enabled || !this.ctx) return;
-        try {
-          const bufferSize = this.ctx.sampleRate * 0.45;
-          const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-          const data = buffer.getChannelData(0);
-          for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-          const noise = this.ctx.createBufferSource();
-          noise.buffer = buffer;
-          const filter = this.ctx.createBiquadFilter();
-          filter.type = 'lowpass';
-          filter.frequency.setValueAtTime(2400, this.ctx.currentTime);
-          const gain = this.ctx.createGain();
-          gain.gain.setValueAtTime(0.65, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.45);
-          noise.connect(filter);
-          filter.connect(gain);
-          gain.connect(this.ctx.destination);
-          noise.start();
-        } catch(e){}
+            osc.start(t);
+            osc.stop(t + 0.23);
+          } else if (type === 'coin') {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(987.77, t);
+            osc.frequency.setValueAtTime(1318.51, t + 0.06);
+            gain.gain.setValueAtTime(0.15, t);
+            gain.gain.linearRampToValueAtTime(0.01, t + 0.15);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.16);
+          } else if (type === 'wave_clear') {
+            const notes = [440, 554.37, 659.25, 880];
+            notes.forEach((freq, idx) => {
+              const osc = this.ctx.createOscillator();
+              const gain = this.ctx.createGain();
+              osc.type = 'triangle';
+              osc.frequency.setValueAtTime(freq, t + idx * 0.08);
+              gain.gain.setValueAtTime(0.2, t + idx * 0.08);
+              gain.gain.linearRampToValueAtTime(0.01, t + idx * 0.08 + 0.18);
+              osc.connect(gain);
+              gain.connect(this.ctx.destination);
+              osc.start(t + idx * 0.08);
+              osc.stop(t + idx * 0.08 + 0.19);
+            });
+          } else if (type === 'gameover') {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(220, t);
+            osc.frequency.exponentialRampToValueAtTime(55, t + 0.6);
+            gain.gain.setValueAtTime(0.35, t);
+            gain.gain.linearRampToValueAtTime(0.01, t + 0.6);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.65);
+          }
+        } catch (e) {
+          // オーディオのブロック等の安全無視
+        }
       }
     }
+
     const sound = new SoundFX();
 
-    /* ==========================================================================
-       2. フィールド & ゲーム定数
-       ========================================================================== */
-    const WORLD_WIDTH = 2800;
-    const WORLD_HEIGHT = 1600;
-
-    const PITCH = {
-      x: 220,
-      y: 150,
-      w: 2360,
-      h: 1300
+    // --- 兵種マスターデータ (要求コイン数爆上げ対応) ---
+    const CLASS_DEFINITIONS = {
+      barehand: {
+        id: 'barehand', name: '素手兵', cost: 0,
+        icon: 'fa-hand-back-fist', color: '#ec4899',
+        desc: '基本の平手打ち。隙が少なく扱いやすい基本兵。',
+        hp: 100, speed: 280, atk: 15, cd: 0.32, range: 65, type: 'melee', projSpeed: 0
+      },
+      knife: {
+        id: 'knife', name: 'ナイフ兵', cost: 15000,
+        icon: 'fa-utensils', color: '#f59e0b',
+        desc: 'リーチは短いが、驚異の超高速連撃を誇る近接暗殺兵。',
+        hp: 90, speed: 320, atk: 9, cd: 0.14, range: 48, type: 'melee', projSpeed: 0
+      },
+      spear: {
+        id: 'spear', name: '槍兵', cost: 45000,
+        icon: 'fa-wand-magic-sparkles', color: '#10b981',
+        desc: '長いリーチを活かして安全圏から精子を貫く突撃兵。',
+        hp: 110, speed: 270, atk: 22, cd: 0.45, range: 110, type: 'melee', projSpeed: 0
+      },
+      bomber: {
+        id: 'bomber', name: '爆弾兵', cost: 120000,
+        icon: 'fa-bomb', color: '#ef4444',
+        desc: 'CDは長めだが、広範囲に着弾爆破を起こすグレネード投擲兵。',
+        hp: 100, speed: 260, atk: 35, cd: 0.75, range: 250, type: 'projectile_aoe', projSpeed: 380
+      },
+      handgun: {
+        id: 'handgun', name: '拳銃兵', cost: 300000,
+        icon: 'fa-gun', color: '#06b6d4',
+        desc: 'クリック連打で射撃レートが上がるセミオート銃士。',
+        hp: 95, speed: 290, atk: 14, cd: 0.22, range: 340, type: 'projectile', projSpeed: 520
+      },
+      machinegun: {
+        id: 'machinegun', name: '機銃兵', cost: 650000,
+        icon: 'fa-crosshairs', color: '#8b5cf6',
+        desc: 'マウス長押しで弾幕を張り続けるフルオート掃射兵。',
+        hp: 105, speed: 250, atk: 7, cd: 0.10, range: 320, type: 'projectile', projSpeed: 480, auto: true
+      },
+      mage: {
+        id: 'mage', name: '魔法兵', cost: 1500000,
+        icon: 'fa-hat-wizard', color: '#d946ef',
+        desc: '長押し連射＆左右2連ホーミング魔法弾で敵を自動追尾！',
+        hp: 95, speed: 270, atk: 13, cd: 0.22, range: 380, type: 'magic_homing_dual', projSpeed: 390, auto: true
+      },
+      neet: {
+        id: 'neet', name: '無職', cost: 9999999,
+        icon: 'fa-couch', color: '#64748b',
+        desc: '本当に何もしない。戦う気ゼロの超高級ネタ兵種。',
+        hp: 80, speed: 240, atk: 0, cd: 999, range: 0, type: 'none', projSpeed: 0
+      }
     };
 
-    // クールダウン（消火器は18.0秒に大幅増加）
-    const CD_PUNCH = 0.8;
-    const CD_SLIDE = 3.2;
-    const CD_TACKLE = 6.0;
-    const CD_EXTINGUISHER = 18.0;
-
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const minimapCanvas = document.getElementById('minimapCanvas');
-    const minimapCtx = minimapCanvas.getContext('2d');
-
-    const camera = {
-      x: 0,
-      y: 0,
-      w: 1280,
-      h: 720,
-      targetX: 0,
-      targetY: 0
-    };
-
-    let matchState = 'TITLE'; // 'TITLE', 'LOBBY', 'COUNTDOWN', 'PLAYING', 'GOAL_PAUSE', 'RESULT'
-    let isSoloMode = true;
-    let roomCode = null;
-    let isHost = true;
-    let myNetId = 'user_' + Math.random().toString(36).substring(2, 8);
-    let localPlayerId = 'p1';
-
-    let isTimeEnabled = true;
-    let matchTimeSeconds = 180;
-    let initialMatchTime = 180;
-    let isTargetGoalsEnabled = false;
-    let targetGoals = 3;
-    let maxBallsLimit = 3;
-
-    let countdownValue = 3;
-    let countdownTimer = 0;
-    let screenShake = 0;
-    let particles = [];
-    let floatingTexts = [];
-
-    const stats = { tackles: 0, refPunches: 0, intruders: 0 };
-    const score = { blue: 0, red: 0 };
-
-    /* ==========================================================================
-       3. オブジェクト初期配置定義
-       ========================================================================== */
-    const GOAL_DEFS = {
-      left: { x: 160, y: PITCH.y + PITCH.h / 2 - 120, w: 60, h: 240 },
-      right: { x: PITCH.x + PITCH.w, y: PITCH.y + PITCH.h / 2 - 120, w: 60, h: 240 }
-    };
-
-    const leftGoal = {
-      id: 'goal_left',
-      type: 'goal',
-      team: 'blue',
-      x: GOAL_DEFS.left.x,
-      y: GOAL_DEFS.left.y,
-      baseX: GOAL_DEFS.left.x,
-      baseY: GOAL_DEFS.left.y,
-      w: GOAL_DEFS.left.w,
-      h: GOAL_DEFS.left.h,
-      isGrabbedBy: null
-    };
-
-    const rightGoal = {
-      id: 'goal_right',
-      type: 'goal',
-      team: 'red',
-      x: GOAL_DEFS.right.x,
-      y: GOAL_DEFS.right.y,
-      baseX: GOAL_DEFS.right.x,
-      baseY: GOAL_DEFS.right.y,
-      w: GOAL_DEFS.right.w,
-      h: GOAL_DEFS.right.h,
-      isGrabbedBy: null
-    };
-
-    const INITIAL_OBSTACLES = [
-      { id: 'b_top1', type: 'bench', name: 'スチールベンチ', x: 600, y: 70, baseX: 600, baseY: 70, w: 90, h: 32 },
-      { id: 'b_top2', type: 'bench', name: 'スチールベンチ', x: 1400, y: 70, baseX: 1400, baseY: 70, w: 90, h: 32 },
-      { id: 'b_top3', type: 'bench', name: 'スチールベンチ', x: 2100, y: 70, baseX: 2100, baseY: 70, w: 90, h: 32 },
-      { id: 'c_top1', type: 'cone', name: '三角コーン', x: 950, y: 80, baseX: 950, baseY: 80, radius: 18 },
-      { id: 'c_top2', type: 'cone', name: '三角コーン', x: 1750, y: 80, baseX: 1750, baseY: 80, radius: 18 },
-
-      { id: 'b_btm1', type: 'bench', name: 'スチールベンチ', x: 750, y: 1480, baseX: 750, baseY: 1480, w: 90, h: 32 },
-      { id: 'b_btm2', type: 'bench', name: 'スチールベンチ', x: 1550, y: 1480, baseX: 1550, baseY: 1480, w: 90, h: 32 },
-      { id: 'bar1', type: 'barricade', name: '工事バリケード', x: 1100, y: 1480, baseX: 1100, baseY: 1480, w: 100, h: 26 },
-      { id: 'bar2', type: 'barricade', name: '工事バリケード', x: 1900, y: 1480, baseX: 1900, baseY: 1480, w: 100, h: 26 },
-      { id: 'c_btm1', type: 'cone', name: '三角コーン', x: 450, y: 1485, baseX: 450, baseY: 1485, radius: 18 },
-      { id: 'c_btm2', type: 'cone', name: '三角コーン', x: 2350, y: 1485, baseX: 2350, baseY: 1485, radius: 18 },
-
-      { id: 'cart1', type: 'cart', name: 'ボール補給カート', x: 1350, y: 1475, baseX: 1350, baseY: 1475, w: 65, h: 42 }
+    // --- バッジマスタープール ---
+    const BADGE_TYPES = [
+      { id: 'spd', name: '韋駄天の脚', icon: 'fa-bolt', attr: 'speedRate' },
+      { id: 'atk', name: '筋力増強', icon: 'fa-fist-raised', attr: 'atkRate' },
+      { id: 'rng', name: '射程拡張', icon: 'fa-bullseye', attr: 'rangeRate' },
+      { id: 'luck', name: '金運アップ', icon: 'fa-clover', attr: 'coinBonus' },
+      { id: 'kb', name: 'ノックバック撃破', icon: 'fa-shield-halved', attr: 'kbBonus' }
     ];
 
-    let obstacles = JSON.parse(JSON.stringify(INITIAL_OBSTACLES));
+    const BADGE_RARITIES = [
+      { id: 'C', name: 'コモン', color: '#94a3b8', weight: 60, mult: 1.05 },
+      { id: 'R', name: 'レア', color: '#38bdf8', weight: 30, mult: 1.15 },
+      { id: 'SR', name: 'スーパーレア', color: '#f59e0b', weight: 10, mult: 1.30 }
+    ];
 
-    let balls = [{
-      x: PITCH.x + PITCH.w / 2,
-      y: PITCH.y + PITCH.h / 2,
-      vx: 0,
-      vy: 0,
-      radius: 14,
-      color: '#ffffff',
-      isMain: true
-    }];
-
-    const referee = {
-      x: PITCH.x + PITCH.w / 2,
-      y: PITCH.y + 350,
-      baseX: PITCH.x + PITCH.w / 2,
-      baseY: PITCH.y + 350,
-      vx: 0,
-      vy: 0,
-      radius: 20,
-      facingAngle: Math.PI / 2,
-      koTimer: 0,
-      angerTimer: 6.0,
-      whistleAnimTimer: 0,
-      animLegPhase: 0
-    };
-
-    const FORMATIONS = {
-      blue: [
-        { x: PITCH.x + 400, y: PITCH.y + PITCH.h / 2 },
-        { x: PITCH.x + 220, y: PITCH.y + PITCH.h / 2 - 180 },
-        { x: PITCH.x + 180, y: PITCH.y + PITCH.h / 2 + 180 }
-      ],
-      red: [
-        { x: PITCH.x + PITCH.w - 400, y: PITCH.y + PITCH.h / 2 },
-        { x: PITCH.x + PITCH.w - 220, y: PITCH.y + PITCH.h / 2 - 180 },
-        { x: PITCH.x + PITCH.w - 180, y: PITCH.y + PITCH.h / 2 + 180 }
-      ]
-    };
-
-    let players = [
+    // --- 試合内ウェーブショップ アイテム定義 ---
+    const WAVE_SHOP_ITEMS = [
       {
-        id: 'p1',
-        netId: myNetId,
-        isLocal: true,
-        name: 'エースストライカー',
-        number: 10,
-        team: 'blue',
-        x: FORMATIONS.blue[0].x,
-        y: FORMATIONS.blue[0].y,
-        vx: 0, vy: 0, radius: 22,
-        facingAngle: 0, facingX: 1, facingY: 0,
-        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
-        yellowCards: 0, isIntruder: false,
-        grabbedObject: null,
-        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
-        actionState: null, animLegPhase: 0,
-        hairColor: '#334155'
+        id: 'personal_heal', name: '応急手当キット', type: 'personal', cost: 15,
+        icon: 'fa-kit-medical', color: '#10b981', desc: '自機の体力を即座に50回復する。'
       },
       {
-        id: 'p2',
-        netId: null,
-        isLocal: false,
-        name: '赤の猛将',
-        number: 9,
-        team: 'red',
-        x: FORMATIONS.red[0].x,
-        y: FORMATIONS.red[0].y,
-        vx: 0, vy: 0, radius: 22,
-        facingAngle: Math.PI, facingX: -1, facingY: 0,
-        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
-        yellowCards: 0, isIntruder: false,
-        grabbedObject: null,
-        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
-        actionState: null, animLegPhase: 0,
-        hairColor: '#7c2d12'
+        id: 'personal_atk', name: 'ステロイド注入', type: 'personal', cost: 35,
+        icon: 'fa-dumbbell', color: '#ef4444', desc: '自機の攻撃力が恒久的に+20%アップする。'
       },
       {
-        id: 'p3',
-        netId: null,
-        isLocal: false,
-        name: '青の盾',
-        number: 4,
-        team: 'blue',
-        x: FORMATIONS.blue[1].x,
-        y: FORMATIONS.blue[1].y,
-        vx: 0, vy: 0, radius: 22,
-        facingAngle: 0, facingX: 1, facingY: 0,
-        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
-        yellowCards: 0, isIntruder: false,
-        grabbedObject: null,
-        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
-        actionState: null, animLegPhase: 0,
-        hairColor: '#0f172a'
+        id: 'personal_spd', name: 'エナジードリンク', type: 'personal', cost: 25,
+        icon: 'fa-person-running', color: '#06b6d4', desc: '自機の移動速度が恒久的に+15%アップする。'
       },
       {
-        id: 'p4',
-        netId: null,
-        isLocal: false,
-        name: '突撃レッド',
-        number: 7,
-        team: 'red',
-        x: FORMATIONS.red[1].x,
-        y: FORMATIONS.red[1].y,
-        vx: 0, vy: 0, radius: 22,
-        facingAngle: Math.PI, facingX: -1, facingY: 0,
-        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
-        yellowCards: 0, isIntruder: false,
-        grabbedObject: null,
-        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
-        actionState: null, animLegPhase: 0,
-        hairColor: '#b45309'
+        id: 'global_repair', name: '透明帯ポリマー修復', type: 'global', cost: 45,
+        icon: 'fa-shield-heart', color: '#ec4899', desc: '【部隊全体】卵子の膜を+25%修復する。'
       },
       {
-        id: 'p5',
-        netId: null,
-        isLocal: false,
-        name: '工作員P5',
-        number: 11,
-        team: 'red',
-        x: FORMATIONS.red[2].x,
-        y: FORMATIONS.red[2].y,
-        vx: 0, vy: 0, radius: 22,
-        facingAngle: Math.PI, facingX: -1, facingY: 0,
-        stunTimer: 0, slowTimer: 0, whiffTimer: 0,
-        yellowCards: 0, isIntruder: false,
-        grabbedObject: null,
-        cds: { punch: 0, slide: 0, tackle: 0, extinguisher: 0 },
-        actionState: null, animLegPhase: 0,
-        hairColor: '#1e293b'
+        id: 'global_turret', name: '自動迎撃タレット増設', type: 'global', cost: 70,
+        icon: 'fa-satellite-dish', color: '#8b5cf6', desc: '【部隊全体】卵子の周囲に自律射撃タレットを1台増設。'
+      },
+      {
+        id: 'global_buff', name: '全軍士気高揚コール', type: 'global', cost: 50,
+        icon: 'fa-bullhorn', color: '#f59e0b', desc: '【部隊全体】全隊員の攻撃力+15%＆移動速度+10%。'
       }
     ];
 
-    const keys = {
-      KeyW: false, KeyS: false, KeyA: false, KeyD: false,
-      ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false,
-      KeyZ: false, KeyX: false, KeyC: false, KeyV: false, Space: false
+    // --- グローバルゲームステート ---
+    const state = {
+      // ネットワーク・ルーム
+      mqttClient: null,
+      isHost: false,
+      roomCode: '',
+      clientId: 'p_' + Math.random().toString(36).substring(2, 9),
+      playerName: '防衛兵01',
+      topic: '',
+      connected: false,
+      lastPacketTime: 0,
+
+      // ワールドと画面
+      worldWidth: 2600,
+      worldHeight: 2000,
+      canvas: null,
+      ctx: null,
+      camera: { x: 1300, y: 1000 },
+      mouse: { screenX: 0, screenY: 0, worldX: 1300, worldY: 1000, isDown: false },
+      keys: {},
+
+      // ゲームフロー
+      gameStatus: 'TITLE', // TITLE, LOBBY, COUNTDOWN, RUNNING, INTERMISSION, GAMEOVER
+      wave: 1,
+      matchCoins: 0,
+      coins: 0, // 永続コイン
+      selectedClassId: 'barehand',
+      unlockedClasses: ['barehand'],
+      badges: {}, // { classId: [badge1, badge2, badge3] }
+
+      // 卵子 (守るべき対象)
+      ovum: {
+        x: 1300, y: 1000,
+        radius: 75,
+        hp: 100, maxHp: 100,
+        turrets: 0
+      },
+
+      // エンティティ一覧
+      players: {}, // id -> Player
+      enemies: [], // 精子リスト
+      projectiles: [], // 弾丸リスト
+      particles: [], // パーティクル
+      floatingTexts: [], // ポップアップテキスト
+
+      // 写真アサイン画像
+      maleLionImg: null,
+      femaleLionImg: null,
+
+      // ホスト用ウェーブスポーン管理
+      waveTotalEnemies: 0,
+      waveSpawnedEnemies: 0,
+      waveRemainingEnemies: 0,
+      spawnTimer: 0,
+      waveActive: false,
+      currentBoss: null
     };
 
-    let isGrabToggled = false;
+    // --- ローカルストレージ復元と永続化 ---
+    function loadSavedData() {
+      try {
+        const savedCoins = localStorage.getItem('sdf_coins');
+        if (savedCoins !== null) state.coins = parseInt(savedCoins, 10) || 0;
 
-    /* ==========================================================================
-       4. 通信システム (MQTT over WebSocket: NAT透過・複数人同期)
-       ========================================================================== */
-    const TOPIC_PREFIX = 'power_soccer_2026/';
-    let mqttClient = null;
-    let netSyncTimer = null;
+        const savedUnlocked = localStorage.getItem('sdf_unlocked_classes');
+        if (savedUnlocked) state.unlockedClasses = JSON.parse(savedUnlocked);
 
-    function initNetwork() {
-      if (mqttClient) return;
+        const savedSelected = localStorage.getItem('sdf_selected_class');
+        if (savedSelected && CLASS_DEFINITIONS[savedSelected]) state.selectedClassId = savedSelected;
 
-      mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
-        clientId: myNetId,
+        const savedBadges = localStorage.getItem('sdf_badges');
+        if (savedBadges) state.badges = JSON.parse(savedBadges);
+
+        const savedName = localStorage.getItem('sdf_player_name');
+        if (savedName) state.playerName = savedName;
+
+        const savedMalePhoto = localStorage.getItem('sdf_male_lion_photo');
+        if (savedMalePhoto) {
+          const img = new Image();
+          img.src = savedMalePhoto;
+          state.maleLionImg = img;
+        }
+        const savedFemalePhoto = localStorage.getItem('sdf_female_lion_photo');
+        if (savedFemalePhoto) {
+          const img = new Image();
+          img.src = savedFemalePhoto;
+          state.femaleLionImg = img;
+        }
+      } catch (e) {
+        console.warn('Storage load failed:', e);
+      }
+    }
+
+    function saveCoinData() {
+      try {
+        localStorage.setItem('sdf_coins', state.coins.toString());
+      } catch (e) {}
+    }
+
+    function saveUnlockData() {
+      try {
+        localStorage.setItem('sdf_unlocked_classes', JSON.stringify(state.unlockedClasses));
+        localStorage.setItem('sdf_selected_class', state.selectedClassId);
+      } catch (e) {}
+    }
+
+    function saveBadgeData() {
+      try {
+        localStorage.setItem('sdf_badges', JSON.stringify(state.badges));
+      } catch (e) {}
+    }
+
+    // --- ライオン写真の自動正方形検出＆円形クロップ描画関数 ---
+    function drawCircleCroppedImage(ctx, img, x, y, radius, fallbackColor = '#f59e0b') {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+
+      if (img && img.complete && img.naturalWidth > 0) {
+        // 画像の元サイズから中央正方形の切り出し範囲を計算
+        const nw = img.naturalWidth;
+        const nh = img.naturalHeight;
+        const size = Math.min(nw, nh);
+        const sx = (nw - size) / 2;
+        const sy = (nh - size) / 2;
+
+        ctx.drawImage(img, sx, sy, size, size, x - radius, y - radius, radius * 2, radius * 2);
+      } else {
+        // ポップなフォールバック描画
+        ctx.fillStyle = fallbackColor;
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${Math.floor(radius * 0.9)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🦁', x, y);
+      }
+      ctx.restore();
+    }
+
+    // --- MQTT.js ネットワーク通信基盤 ---
+    function initMQTT(roomCode, onConnectSuccess) {
+      if (state.mqttClient) {
+        try { state.mqttClient.end(); } catch (e) {}
+      }
+
+      state.roomCode = roomCode.toUpperCase();
+      state.topic = `shikyuu_sdf_game/room_${state.roomCode}`;
+      updateNetStatus(`HiveMQ接続試行中: [${state.roomCode}]`, 'yellow');
+
+      // HiveMQ パブリックWSSブローカー (8884ポート・NAT透過)
+      const brokerUrl = 'wss://broker.hivemq.com:8884/mqtt';
+      const client = mqtt.connect(brokerUrl, {
+        clientId: 'sdf_' + state.clientId + '_' + Math.random().toString(16).substring(2, 8),
         clean: true,
+        connectTimeout: 7000,
         reconnectPeriod: 2500
       });
 
-      mqttClient.on('connect', () => {
-        if (roomCode) {
-          mqttClient.subscribe(TOPIC_PREFIX + roomCode);
-        }
+      client.on('connect', () => {
+        state.connected = true;
+        updateNetStatus(`接続完了: ルーム ${state.roomCode}`, 'green');
+        client.subscribe(state.topic, { qos: 0 });
+
+        // 入室通知
+        sendPacket({
+          type: 'MEMBER_JOIN',
+          id: state.clientId,
+          name: state.playerName,
+          classId: state.selectedClassId,
+          isHost: state.isHost
+        });
+
+        if (onConnectSuccess) onConnectSuccess();
       });
 
-      mqttClient.on('message', (topic, payload) => {
+      client.on('message', (tpc, payload) => {
         try {
           const msg = JSON.parse(payload.toString());
-          if (msg.sender === myNetId) return; // 自分のパケットは除外
-          handleNetworkMessage(msg);
+          // 自身が送信したパケットは除外
+          if (msg.senderId === state.clientId) return;
+          handleNetworkPacket(msg);
         } catch (e) {
-          console.error('MQTT message error:', e);
+          console.warn('MQTT Packet parse error:', e);
         }
       });
-    }
 
-    function sendNet(type, data = {}) {
-      if (!mqttClient || !mqttClient.connected || !roomCode) return;
-      const payload = JSON.stringify({
-        sender: myNetId,
-        type: type,
-        ...data
+      client.on('error', (err) => {
+        updateNetStatus('接続エラー: ' + (err.message || '通信障害'), 'red');
       });
-      mqttClient.publish(TOPIC_PREFIX + roomCode, payload, { qos: 0 });
+
+      client.on('close', () => {
+        state.connected = false;
+        updateNetStatus('接続切断 (再接続待機中)', 'amber');
+      });
+
+      state.mqttClient = client;
     }
 
-    function handleNetworkMessage(msg) {
+    function sendPacket(data) {
+      if (!state.mqttClient || !state.connected) return;
+      data.senderId = state.clientId;
+      data.time = Date.now();
+      try {
+        state.mqttClient.publish(state.topic, JSON.stringify(data), { qos: 0 });
+      } catch (e) {}
+    }
+
+    // --- パケット受信ディスパッチャー ---
+    function handleNetworkPacket(msg) {
       switch (msg.type) {
-        case 'join_request':
-          if (isHost) {
-            // 空いているスロットへ割り当て
-            let targetSlot = players.find(p => p.id !== 'p1' && !p.netId);
-            if (targetSlot) {
-              targetSlot.netId = msg.sender;
-              targetSlot.name = msg.name || '参加者';
-              targetSlot.team = msg.team || 'red';
-            }
-            broadcastLobbyState();
+        case 'MEMBER_JOIN':
+          if (!state.players[msg.id]) {
+            state.players[msg.id] = createNetworkPlayer(msg.id, msg.name, msg.classId, msg.isHost);
           }
-          break;
-
-        case 'lobby_sync':
-          // ゲスト側でロビー情報を反映
-          if (!isHost) {
-            msg.roster.forEach(r => {
-              const p = players.find(pl => pl.id === r.id);
-              if (p) {
-                p.netId = r.netId;
-                p.name = r.name;
-                p.team = r.team;
-                p.isLocal = (r.netId === myNetId);
-                if (p.isLocal) localPlayerId = p.id;
-              }
-            });
-            isTimeEnabled = msg.rules.isTimeEnabled;
-            matchTimeSeconds = msg.rules.matchTimeSeconds;
-            isTargetGoalsEnabled = msg.rules.isTargetGoalsEnabled;
-            targetGoals = msg.rules.targetGoals;
-            maxBallsLimit = msg.rules.maxBallsLimit;
-            renderLobbyRoster();
-          }
-          break;
-
-        case 'match_start':
-          isSoloMode = false;
-          showScreen('IN_GAME');
-          startRoundReset(null, true);
-          break;
-
-        case 'player_input_sync':
-          const senderPlayer = players.find(p => p.id === msg.playerId);
-          if (senderPlayer && !senderPlayer.isLocal) {
-            senderPlayer.x = msg.x;
-            senderPlayer.y = msg.y;
-            senderPlayer.vx = msg.vx;
-            senderPlayer.vy = msg.vy;
-            senderPlayer.facingAngle = msg.facingAngle;
-            senderPlayer.facingX = msg.facingX;
-            senderPlayer.facingY = msg.facingY;
-            senderPlayer.actionState = msg.actionState;
-            senderPlayer.animLegPhase = msg.animLegPhase;
-
-            // 掴んでいるオブジェクトの同期
-            if (msg.grabbedObjId) {
-              const obj = [leftGoal, rightGoal, ...obstacles].find(o => o.id === msg.grabbedObjId);
-              if (obj) {
-                senderPlayer.grabbedObject = obj;
-                obj.isGrabbedBy = senderPlayer.id;
-              }
-            } else if (senderPlayer.grabbedObject) {
-              senderPlayer.grabbedObject.isGrabbedBy = null;
-              senderPlayer.grabbedObject = null;
-            }
-          }
-          break;
-
-        case 'host_world_sync':
-          if (!isHost) {
-            // ボール・審判・スコア・タイマーの同期
-            if (msg.balls) balls = msg.balls;
-            if (msg.referee) {
-              referee.x = msg.referee.x;
-              referee.y = msg.referee.y;
-              referee.koTimer = msg.referee.koTimer;
-            }
-            if (msg.score) {
-              score.blue = msg.score.blue;
-              score.red = msg.score.red;
-            }
-            if (msg.matchTimeSeconds !== undefined) {
-              matchTimeSeconds = msg.matchTimeSeconds;
-            }
-            // 未掴みのゴール・備品位置の同期
-            if (msg.obstacles) {
-              msg.obstacles.forEach(so => {
-                const localObj = obstacles.find(o => o.id === so.id);
-                if (localObj && !localObj.isGrabbedBy) {
-                  localObj.x = so.x;
-                  localObj.y = so.y;
-                }
-              });
-            }
-            if (msg.goals) {
-              if (!leftGoal.isGrabbedBy) { leftGoal.x = msg.goals.left.x; leftGoal.y = msg.goals.left.y; }
-              if (!rightGoal.isGrabbedBy) { rightGoal.x = msg.goals.right.x; rightGoal.y = msg.goals.right.y; }
-            }
-          }
-          break;
-
-        case 'action_event':
-          handleRemoteAction(msg);
-          break;
-
-        case 'match_end':
-          triggerMatchEnd(msg.reason, false);
-          break;
-
-        case 'round_reset':
-          startRoundReset(msg.scoringTeam, false);
-          break;
-      }
-    }
-
-    function broadcastLobbyState() {
-      sendNet('lobby_sync', {
-        roster: players.map(p => ({ id: p.id, netId: p.netId, name: p.name, team: p.team })),
-        rules: {
-          isTimeEnabled,
-          matchTimeSeconds,
-          isTargetGoalsEnabled,
-          targetGoals,
-          maxBallsLimit
-        }
-      });
-      renderLobbyRoster();
-    }
-
-    function handleRemoteAction(msg) {
-      const actor = players.find(p => p.id === msg.actorId);
-      if (!actor) return;
-      if (msg.action === 'punch') executePunch(actor, true);
-      else if (msg.action === 'slide') executeSlide(actor, true);
-      else if (msg.action === 'tackle') executeTackle(actor, true);
-      else if (msg.action === 'extinguisher') executeExtinguisher(actor, true);
-    }
-
-    /* ==========================================================================
-       5. リセットロジック（試合終了リセット ＆ ゴール後イエローカード維持リセット）
-       ========================================================================== */
-    // A. 試合終了時の完全リセット（タイトルへ戻る際や新規試合開始時に全初期化）
-    function resetMatchCompletely() {
-      matchState = 'TITLE';
-      score.blue = 0;
-      score.red = 0;
-      stats.tackles = 0;
-      stats.refPunches = 0;
-      stats.intruders = 0;
-      isGrabToggled = false;
-      keys.KeyV = false;
-
-      // 全プレイヤー完全初期化（カードも0、乱入解除）
-      players.forEach((p, idx) => {
-        p.yellowCards = 0;
-        p.isIntruder = false;
-        p.stunTimer = 0;
-        p.slowTimer = 0;
-        p.whiffTimer = 0;
-        p.vx = 0; p.vy = 0;
-        p.cds = { punch: 0, slide: 0, tackle: 0, extinguisher: 0 };
-        p.actionState = null;
-        if (p.grabbedObject) {
-          p.grabbedObject.isGrabbedBy = null;
-          p.grabbedObject = null;
-        }
-      });
-
-      // ゴール・備品・審判・ボールを完全初期位置へ
-      resetWorldEntities();
-    }
-
-    // B. フィールド上の全配置物を初期位置へ
-    function resetWorldEntities() {
-      leftGoal.x = GOAL_DEFS.left.x;
-      leftGoal.y = GOAL_DEFS.left.y;
-      leftGoal.isGrabbedBy = null;
-
-      rightGoal.x = GOAL_DEFS.right.x;
-      rightGoal.y = GOAL_DEFS.right.y;
-      rightGoal.isGrabbedBy = null;
-
-      obstacles = JSON.parse(JSON.stringify(INITIAL_OBSTACLES));
-      obstacles.forEach(o => { o.isGrabbedBy = null; });
-
-      referee.x = referee.baseX;
-      referee.y = referee.baseY;
-      referee.vx = 0; referee.vy = 0;
-      referee.koTimer = 0;
-      referee.angerTimer = 6.0;
-
-      balls = [{
-        x: PITCH.x + PITCH.w / 2,
-        y: PITCH.y + PITCH.h / 2,
-        vx: 0, vy: 0,
-        radius: 14,
-        color: '#ffffff',
-        isMain: true
-      }];
-    }
-
-    // C. ゴール後のラウンドリセット（※イエローカード・乱入状態のみ完全維持！）
-    function startRoundReset(scoringTeam = null, broadcast = true) {
-      if (broadcast && !isSoloMode && isHost) {
-        sendNet('round_reset', { scoringTeam });
-      }
-
-      // 目標ゴール数判定
-      if (isTargetGoalsEnabled) {
-        if (score.blue >= targetGoals || score.red >= targetGoals) {
-          triggerMatchEnd('target_goals');
-          return;
-        }
-      }
-
-      matchState = 'COUNTDOWN';
-      countdownValue = 3;
-      countdownTimer = 3.5;
-
-      // 掴み強制解除（バグ防止）
-      players.forEach(p => {
-        dropGrabbed(p);
-        p.vx = 0; p.vy = 0;
-        p.actionState = null;
-        p.whiffTimer = 0;
-        p.stunTimer = 0;
-        p.slowTimer = 0;
-      });
-      isGrabToggled = false;
-      keys.KeyV = false;
-
-      // プレイヤーを初期フォーメーションへ（イエローカード・isIntruderはそのまま維持！）
-      let bIdx = 0, rIdx = 0;
-      players.forEach(p => {
-        if (p.team === 'blue') {
-          const form = FORMATIONS.blue[bIdx % FORMATIONS.blue.length];
-          p.x = form.x; p.y = form.y;
-          p.facingAngle = 0; p.facingX = 1; p.facingY = 0;
-          bIdx++;
-        } else {
-          const form = FORMATIONS.red[rIdx % FORMATIONS.red.length];
-          p.x = form.x; p.y = form.y;
-          p.facingAngle = Math.PI; p.facingX = -1; p.facingY = 0;
-          rIdx++;
-        }
-      });
-
-      // ゴール・備品・ボール・審判をすべて初期位置にリセット
-      resetWorldEntities();
-
-      sound.playCountdownBeep(false);
-      showBigAlert('3', scoringTeam ? `${scoringTeam === 'blue' ? '青組' : '赤組'} 得点！開始準備` : 'まもなく開始', 'text-yellow-400', 0);
-    }
-
-    function triggerMatchEnd(reason = 'time', broadcast = true) {
-      matchState = 'RESULT';
-      if (broadcast && !isSoloMode && isHost) {
-        sendNet('match_end', { reason });
-      }
-
-      const headline = document.getElementById('result-headline');
-      if (score.blue > score.red) headline.textContent = '青組の勝利！';
-      else if (score.red > score.blue) headline.textContent = '赤組の勝利！';
-      else headline.textContent = '白熱の引き分け！';
-
-      if (reason === 'host_forced') headline.textContent = 'ホストにより試合終了！';
-      else if (reason === 'target_goals') {
-        const winner = score.blue > score.red ? '青組' : '赤組';
-        headline.textContent = `${winner}が目標達成で勝利！`;
-      }
-
-      document.getElementById('result-score-blue').textContent = score.blue;
-      document.getElementById('result-score-red').textContent = score.red;
-      document.getElementById('result-stat-tackles').textContent = `${stats.tackles}回`;
-      document.getElementById('result-stat-ref-punches').textContent = `${stats.refPunches}回 (KO ${stats.refPunches * 5}秒)`;
-      document.getElementById('result-stat-intruders').textContent = `${stats.intruders}回`;
-
-      showScreen('RESULT');
-    }
-
-    /* ==========================================================================
-       6. 掴み＆アクション管理（Vキー不具合の根治）
-       ========================================================================== */
-    function dropGrabbed(player) {
-      if (player.grabbedObject) {
-        player.grabbedObject.isGrabbedBy = null;
-        player.grabbedObject = null;
-      }
-      if (player.isLocal) {
-        isGrabToggled = false;
-        keys.KeyV = false;
-      }
-    }
-
-    function updatePlayerGrab(player) {
-      // 気絶中や隙硬直中は強制手放し
-      if (player.stunTimer > 0 || player.whiffTimer > 0) {
-        if (player.grabbedObject) {
-          dropGrabbed(player);
-          showFloatText('落とした！', player.x, player.y - 30, '#ef4444', 16);
-        }
-        return;
-      }
-
-      const wantGrab = (keys.KeyV || isGrabToggled);
-
-      if (wantGrab) {
-        if (!player.grabbedObject) {
-          const reach = 85;
-          let candidate = null;
-
-          // ゴール判定
-          [leftGoal, rightGoal].forEach(g => {
-            const gx = g.x + g.w / 2;
-            const gy = g.y + g.h / 2;
-            if (Math.hypot(player.x - gx, player.y - gy) < reach + 45 && !g.isGrabbedBy) {
-              candidate = g;
-            }
-          });
-
-          // 備品判定
-          if (!candidate) {
-            obstacles.forEach(obs => {
-              const ox = obs.x + (obs.w ? obs.w / 2 : 0);
-              const oy = obs.y + (obs.h ? obs.h / 2 : 0);
-              if (Math.hypot(player.x - ox, player.y - oy) < reach && !obs.isGrabbedBy) {
-                candidate = obs;
-              }
+          // ホストの場合、現在のロビー全体リストやステータスを返信
+          if (state.isHost) {
+            sendPacket({
+              type: 'LOBBY_SYNC_RESPONSE',
+              players: Object.values(state.players).map(p => ({
+                id: p.id, name: p.name, classId: p.classId, isHost: p.isHost
+              })),
+              gameStatus: state.gameStatus,
+              wave: state.wave
             });
           }
+          updateLobbyUI();
+          break;
 
-          if (candidate) {
-            player.grabbedObject = candidate;
-            candidate.isGrabbedBy = player.id;
-            showFloatText(`${candidate.name || 'ゴール'}を掴んだ！`, player.x, player.y - 30, '#10b981', 18);
+        case 'LOBBY_SYNC_RESPONSE':
+          if (msg.players && Array.isArray(msg.players)) {
+            msg.players.forEach(p => {
+              if (!state.players[p.id]) {
+                state.players[p.id] = createNetworkPlayer(p.id, p.name, p.classId, p.isHost);
+              } else {
+                state.players[p.id].name = p.name;
+                state.players[p.id].classId = p.classId;
+                state.players[p.id].isHost = p.isHost;
+              }
+            });
+            updateLobbyUI();
           }
-        }
+          // 途中参加フェイルセーフ
+          if (msg.gameStatus === 'RUNNING' && state.gameStatus !== 'RUNNING') {
+            triggerGameStart();
+          }
+          break;
+
+        case 'MEMBER_LEAVE':
+          delete state.players[msg.id];
+          updateLobbyUI();
+          break;
+
+        case 'START_COUNTDOWN_SIGNAL':
+          startCountdownAnimation();
+          break;
+
+        case 'GAME_START_SIGNAL':
+          triggerGameStart();
+          break;
+
+        case 'PLAYER_INPUT_SYNC':
+          if (state.players[msg.senderId]) {
+            const p = state.players[msg.senderId];
+            p.targetX = msg.x;
+            p.targetY = msg.y;
+            p.angle = msg.angle;
+            p.hp = msg.hp;
+            p.isDown = msg.isDown;
+            p.isAttacking = msg.isAttacking;
+          }
+          break;
+
+        case 'HOST_TICK_UPDATE':
+          // ゲスト側：ホストからの敵・卵子・ウェーブ同期受信
+          if (!state.isHost) {
+            applyHostTickUpdate(msg);
+          }
+          break;
+
+        case 'ENEMY_HIT_EVENT':
+          // ダメージ演出・効果音同期
+          createParticles(msg.x, msg.y, msg.color || '#f59e0b', 5);
+          createFloatingText(msg.x, msg.y - 10, '-' + msg.damage, '#f87171');
+          sound.play('hit');
+          break;
+
+        case 'ENEMY_KILLED_EVENT':
+          createParticles(msg.x, msg.y, '#f43f5e', 14);
+          createFloatingText(msg.x, msg.y - 15, '+' + msg.coins + ' 🪙', '#fbbf24');
+          sound.play('explode');
+          break;
+
+        case 'GLOBAL_SHOP_PURCHASE':
+          // 部隊全体ショップアイテムの同期
+          applyGlobalShopItem(msg.itemId);
+          break;
+
+        case 'WAVE_INTERMISSION_TRIGGER':
+          openWaveIntermissionShop(msg.nextWave);
+          break;
+
+        case 'GAME_OVER_TRIGGER':
+          handleGameOver(msg.wave, msg.coins);
+          break;
+      }
+    }
+
+    // --- プレイヤーオブジェクトの生成とバッジ計算 ---
+    function createNetworkPlayer(id, name, classId, isHost) {
+      const cls = CLASS_DEFINITIONS[classId] || CLASS_DEFINITIONS.barehand;
+      return {
+        id,
+        name: name || '防衛兵',
+        classId: cls.id,
+        isHost: !!isHost,
+        x: state.ovum.x + (Math.random() - 0.5) * 120,
+        y: state.ovum.y + (Math.random() - 0.5) * 120,
+        targetX: state.ovum.x,
+        targetY: state.ovum.y,
+        angle: 0,
+        hp: cls.hp,
+        maxHp: cls.hp,
+        isDown: false,
+        reviveProgress: 0,
+        isAttacking: false,
+        cooldownTimer: 0,
+        buffs: { atkMult: 1, spdMult: 1 },
+        // 基本属性
+        speed: cls.speed,
+        atk: cls.atk,
+        range: cls.range,
+        cd: cls.cd
+      };
+    }
+
+    function calculateLocalPlayerStats() {
+      const cls = CLASS_DEFINITIONS[state.selectedClassId] || CLASS_DEFINITIONS.barehand;
+      let spd = cls.speed;
+      let atk = cls.atk;
+      let rng = cls.range;
+      let hp = cls.hp;
+
+      // 装着中のバッジ効果を積算
+      const classBadges = state.badges[cls.id] || [];
+      classBadges.forEach(b => {
+        if (!b) return;
+        if (b.type.attr === 'speedRate') spd *= b.rarity.mult;
+        if (b.type.attr === 'atkRate') atk *= b.rarity.mult;
+        if (b.type.attr === 'rangeRate') rng *= b.rarity.mult;
+      });
+
+      return { spd, atk, rng, hp, cd: cls.cd };
+    }
+
+    // --- 無限ウェーブ自動生成数式＆ボス生成 ---
+    function setupWaveProgression(waveNum) {
+      state.wave = waveNum;
+      // 敵の総数 = 12 + wave * 4.5
+      state.waveTotalEnemies = Math.floor(12 + waveNum * 4.5);
+      state.waveSpawnedEnemies = 0;
+      state.waveRemainingEnemies = state.waveTotalEnemies;
+      state.spawnTimer = 0;
+      state.waveActive = true;
+
+      const isBossWave = (waveNum % 5 === 0);
+      if (isBossWave) {
+        state.currentBoss = generateProceduralBoss(waveNum);
       } else {
-        if (player.grabbedObject) {
-          showFloatText(`${player.grabbedObject.name || 'ゴール'}を設置！`, player.x, player.y - 30, '#6ee7b7', 16);
-          dropGrabbed(player);
-        }
-      }
-
-      // 掴んでいるオブジェクトをプレイヤー前方に連動
-      if (player.grabbedObject) {
-        const obj = player.grabbedObject;
-        const dragDist = player.radius + (obj.radius || (obj.w ? Math.min(obj.w, obj.h) / 2 : 25)) + 14;
-        const targetX = player.x + player.facingX * dragDist;
-        const targetY = player.y + player.facingY * dragDist;
-
-        if (obj.radius) {
-          obj.x = targetX; obj.y = targetY;
-        } else {
-          obj.x = targetX - obj.w / 2; obj.y = targetY - obj.h / 2;
-        }
-
-        // カート特典
-        if (obj.type === 'cart' && balls.length < maxBallsLimit) {
-          if (obj.x > PITCH.x && obj.x < PITCH.x + PITCH.w && Math.random() < 0.05) {
-            balls.push({
-              x: obj.x + 30, y: obj.y + 20,
-              vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
-              radius: 14, color: '#fef08a', isMain: false
-            });
-            sound.playKick();
-            showFloatText('予備ボール出現！', obj.x, obj.y - 20, '#facc15', 20);
-          }
-        }
+        state.currentBoss = null;
       }
     }
 
-    function checkFoul(player, actionName) {
-      if (referee.koTimer > 0) {
-        showFloatText('審判気絶でセーフ！', player.x, player.y - 35, '#4ade80', 18);
+    function generateProceduralBoss(waveNum) {
+      const bossTier = Math.floor(waveNum / 5);
+      const names = ['超巨頭ドリル精子', '覇王フェロモン精子', '暴走分裂メガ精子', '古代原始核精子'];
+      const chosenName = names[(bossTier - 1) % names.length] + ` [Rank ${bossTier}]`;
+
+      const abilityPool = ['minion_spawn', 'rush_dash', 'slow_aura'];
+      let selectedAbilities = [];
+      if (bossTier === 1) selectedAbilities = ['rush_dash'];
+      else if (bossTier === 2) selectedAbilities = ['minion_spawn', 'rush_dash'];
+      else selectedAbilities = abilityPool; // 全能力
+
+      const baseHp = 350 + waveNum * 95;
+
+      return {
+        name: chosenName,
+        maxHp: baseHp,
+        hp: baseHp,
+        radius: 36 + Math.min(20, bossTier * 4),
+        speed: 120 + Math.min(60, waveNum * 2),
+        abilities: selectedAbilities,
+        timer: 0,
+        rushTimer: 0,
+        isRushing: false
+      };
+    }
+
+    // --- ホスト用：敵のスポーン処理 ---
+    function hostSpawnNextEnemy() {
+      if (state.waveSpawnedEnemies >= state.waveTotalEnemies) return;
+
+      // ボスのスポーン (ウェーブ開始直後1体目)
+      if (state.currentBoss && state.waveSpawnedEnemies === 0) {
+        const angle = Math.random() * Math.PI * 2;
+        const spawnDist = 1100;
+        const bx = state.ovum.x + Math.cos(angle) * spawnDist;
+        const by = state.ovum.y + Math.sin(angle) * spawnDist;
+
+        state.enemies.push({
+          id: 'boss_' + Date.now(),
+          isBoss: true,
+          name: state.currentBoss.name,
+          x: bx, y: by,
+          radius: state.currentBoss.radius,
+          hp: state.currentBoss.hp,
+          maxHp: state.currentBoss.maxHp,
+          speed: state.currentBoss.speed,
+          targetGoal: 'hybrid',
+          abilities: state.currentBoss.abilities,
+          angle: 0,
+          tailLength: 60,
+          wiggleOffset: 0,
+          abilityCooldown: 4.0
+        });
+
+        state.waveSpawnedEnemies++;
         return;
       }
 
-      player.yellowCards++;
-      sound.playWhistle();
-      referee.whistleAnimTimer = 0.7;
-      showFloatText(`🟨 ${actionName}! (${player.yellowCards}/10)`, player.x, player.y - 35, '#facc15', 20);
+      // 通常精子のスポーン
+      const angle = Math.random() * Math.PI * 2;
+      const spawnDist = 1000 + Math.random() * 200;
+      const ex = state.ovum.x + Math.cos(angle) * spawnDist;
+      const ey = state.ovum.y + Math.sin(angle) * spawnDist;
 
-      if (player.yellowCards >= 10 && !player.isIntruder) {
-        player.isIntruder = true;
-        stats.intruders++;
-        sound.playTackle();
-        showBigAlert('RED CARD & 乱入！', `${player.name}が退場！消火器を持って乱入！`, 'text-rose-500', 2500);
+      // 敵の種別AI（卵子狙い、プレイヤー狙い、ハイブリッド）
+      const aiRoll = Math.random();
+      let targetGoal = 'ovum';
+      if (aiRoll < 0.35) targetGoal = 'player';
+      else if (aiRoll < 0.60) targetGoal = 'hybrid';
 
-        player.x = PITCH.x - 80;
-        player.y = PITCH.y + PITCH.h / 2;
-        player.vx = 0; player.vy = 0;
-        player.stunTimer = 0;
-        triggerScreenShake(14);
-      }
-      updateHUD();
-    }
+      // ウェーブスケーリング計算
+      const baseHp = 25 + state.wave * 8 * (1 + state.wave * 0.03);
+      const baseSpeed = Math.min(220, 130 + state.wave * 4);
 
-    // 各種アクション
-    function executePunch(player, isRemote = false) {
-      if (matchState !== 'PLAYING' || player.stunTimer > 0 || player.whiffTimer > 0 || player.cds.punch > 0) return;
-      player.cds.punch = CD_PUNCH;
-      player.actionState = 'punching';
-      sound.playPunch();
-
-      if (!isRemote && !isSoloMode) {
-        sendNet('action_event', { actorId: player.id, action: 'punch' });
-      }
-
-      const reachX = player.x + player.facingX * 38;
-      const reachY = player.y + player.facingY * 38;
-      addParticle(reachX, reachY, player.facingX * 3, player.facingY * 3, '#f59e0b', 10, 0.2);
-
-      players.forEach(target => {
-        if (target.id === player.id) return;
-        if (Math.hypot(reachX - target.x, reachY - target.y) < target.radius + 22) {
-          target.vx += player.facingX * 6.5;
-          target.vy += player.facingY * 6.5;
-          target.stunTimer = Math.max(target.stunTimer, 0.5);
-          dropGrabbed(target);
-          showFloatText('ボカッ！', target.x, target.y - 30, '#f59e0b', 20);
-          triggerScreenShake(5);
-        }
+      state.enemies.push({
+        id: 'e_' + Math.random().toString(36).substring(2, 8),
+        isBoss: false,
+        x: ex, y: ey,
+        radius: 17 + Math.random() * 5,
+        hp: baseHp,
+        maxHp: baseHp,
+        speed: baseSpeed * (0.85 + Math.random() * 0.3),
+        targetGoal,
+        angle: 0,
+        tailLength: 35 + Math.random() * 15,
+        wiggleOffset: Math.random() * 10
       });
 
-      if (Math.hypot(reachX - referee.x, reachY - referee.y) < referee.radius + 22) {
-        referee.koTimer = 5.0;
-        stats.refPunches++;
-        referee.vx += player.facingX * 7;
-        referee.vy += player.facingY * 7;
-        sound.playTackle();
-        showFloatText('審判KO！5秒無法地帯！', referee.x, referee.y - 35, '#ef4444', 24);
-        triggerScreenShake(10);
-      }
-
-      setTimeout(() => { if (player.actionState === 'punching') player.actionState = null; }, 200);
+      state.waveSpawnedEnemies++;
     }
 
-    function executeSlide(player, isRemote = false) {
-      if (matchState !== 'PLAYING' || player.stunTimer > 0 || player.whiffTimer > 0 || player.cds.slide > 0) return;
-      player.cds.slide = CD_SLIDE;
-      player.actionState = 'sliding';
-      sound.playSlide();
+    // --- ホスト用：状態同期ブロードキャスト (約15Hz) ---
+    function broadcastHostTick() {
+      if (!state.isHost) return;
 
-      if (!isRemote && !isSoloMode) {
-        sendNet('action_event', { actorId: player.id, action: 'slide' });
-      }
+      const enemyData = state.enemies.map(e => ({
+        id: e.id,
+        x: Math.round(e.x),
+        y: Math.round(e.y),
+        angle: Math.round(e.angle * 100) / 100,
+        hp: Math.round(e.hp),
+        maxHp: Math.round(e.maxHp),
+        isBoss: e.isBoss,
+        radius: Math.round(e.radius)
+      }));
 
-      player.vx = player.facingX * 12.5;
-      player.vy = player.facingY * 12.5;
-
-      const checkInterval = setInterval(() => {
-        if (player.actionState !== 'sliding') { clearInterval(checkInterval); return; }
-        addParticle(player.x, player.y + 12, -player.facingX * 2, -player.facingY * 2, '#94a3b8', 7, 0.25);
-
-        players.forEach(target => {
-          if (target.id === player.id) return;
-          if (Math.hypot(player.x - target.x, player.y - target.y) < player.radius + target.radius) {
-            target.vx += player.facingX * 5;
-            target.vy += player.facingY * 5;
-            target.slowTimer = 1.0;
-            dropGrabbed(target);
-            showFloatText('ズザッ！(1秒減速)', target.x, target.y - 25, '#38bdf8', 18);
-          }
-        });
-      }, 50);
-
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        if (player.actionState === 'sliding') player.actionState = null;
-      }, 350);
-
-      checkFoul(player, 'スライディング違反');
-    }
-
-    function executeTackle(player, isRemote = false) {
-      if (matchState !== 'PLAYING' || player.stunTimer > 0 || player.whiffTimer > 0 || player.cds.tackle > 0) return;
-      player.cds.tackle = CD_TACKLE;
-      player.actionState = 'tackling';
-      sound.playTackle();
-
-      if (!isRemote && !isSoloMode) {
-        sendNet('action_event', { actorId: player.id, action: 'tackle' });
-      }
-
-      player.vx = player.facingX * 16.5;
-      player.vy = player.facingY * 16.5;
-
-      let hitSomeone = false;
-      const chargeEnd = Date.now() + 260;
-
-      const chargeInterval = setInterval(() => {
-        addParticle(player.x, player.y, 0, 0, '#ef4444', 10, 0.25);
-
-        players.forEach(target => {
-          if (target.id === player.id) return;
-          if (Math.hypot(player.x - target.x, player.y - target.y) < player.radius + target.radius + 10) {
-            hitSomeone = true;
-            stats.tackles++;
-            target.vx = player.facingX * 16;
-            target.vy = player.facingY * 16;
-            target.stunTimer = 5.0;
-            dropGrabbed(target);
-            showFloatText('ドガァッ！！(5秒気絶)', target.x, target.y - 35, '#dc2626', 24);
-            triggerScreenShake(14);
-          }
-        });
-
-        if (Date.now() > chargeEnd || hitSomeone) {
-          clearInterval(chargeInterval);
-          player.actionState = null;
-          if (!hitSomeone) {
-            player.whiffTimer = 1.4;
-            showFloatText('大空振り！(隙大)', player.x, player.y - 28, '#94a3b8', 16);
-          }
-        }
-      }, 40);
-
-      checkFoul(player, '悪質タックル');
-    }
-
-    // 消火器（CD 18.0秒）
-    function executeExtinguisher(player, isRemote = false) {
-      if (matchState !== 'PLAYING' || !player.isIntruder || player.cds.extinguisher > 0) return;
-      player.cds.extinguisher = CD_EXTINGUISHER;
-      sound.playExtinguisher();
-      triggerScreenShake(8);
-      showFloatText('消火器大噴射！！', player.x, player.y - 35, '#ffffff', 22);
-
-      if (!isRemote && !isSoloMode) {
-        sendNet('action_event', { actorId: player.id, action: 'extinguisher' });
-      }
-
-      for (let i = 0; i < 50; i++) {
-        const spread = (Math.random() - 0.5) * 1.0;
-        const spd = 8 + Math.random() * 11;
-        const dir = player.facingAngle + spread;
-        addParticle(player.x + player.facingX * 25, player.y + player.facingY * 25, Math.cos(dir) * spd, Math.sin(dir) * spd, '#ffffff', 14 + Math.random() * 12, 0.8);
-      }
-
-      players.forEach(target => {
-        if (target.id === player.id) return;
-        const dx = target.x - player.x;
-        const dy = target.y - player.y;
-        const dist = Math.hypot(dx, dy);
-        const dot = (dx * player.facingX + dy * player.facingY) / (dist || 1);
-        if (dist < 260 && dot > 0.3) {
-          target.vx = (dx / (dist || 1)) * 20;
-          target.vy = (dy / (dist || 1)) * 20;
-          target.stunTimer = 1.6;
-          dropGrabbed(target);
-          showFloatText('強風吹っ飛び！', target.x, target.y - 25, '#38bdf8', 20);
-        }
-      });
-
-      balls.forEach(b => {
-        const dx = b.x - player.x;
-        const dy = b.y - player.y;
-        const dist = Math.hypot(dx, dy);
-        const dot = (dx * player.facingX + dy * player.facingY) / (dist || 1);
-        if (dist < 280 && dot > 0.3) {
-          b.vx += (dx / (dist || 1)) * 18;
-          b.vy += (dy / (dist || 1)) * 18;
-        }
+      sendPacket({
+        type: 'HOST_TICK_UPDATE',
+        wave: state.wave,
+        ovumHp: Math.round(state.ovum.hp),
+        ovumTurrets: state.ovum.turrets,
+        enemies: enemyData,
+        remaining: state.waveRemainingEnemies
       });
     }
 
-    /* ==========================================================================
-       7. AI & 物理ループ
-       ========================================================================== */
-    function updateBots(dt) {
-      // 審判の挙動（ソロ、またはホスト側でのみシミュレーション）
-      if (isSoloMode || isHost) {
-        if (referee.koTimer > 0) {
-          referee.koTimer -= dt;
-          referee.vx *= 0.88;
-          referee.vy *= 0.88;
+    // ゲスト用：ホストからのティック更新受信と補間
+    function applyHostTickUpdate(data) {
+      state.wave = data.wave;
+      state.ovum.hp = data.ovumHp;
+      state.ovum.turrets = data.ovumTurrets;
+      state.waveRemainingEnemies = data.remaining;
+
+      // 既存の敵のターゲット座標を更新、または新規追加
+      const newEnemies = [];
+      data.enemies.forEach(item => {
+        let existing = state.enemies.find(e => e.id === item.id);
+        if (existing) {
+          existing.targetX = item.x;
+          existing.targetY = item.y;
+          existing.angle = item.angle;
+          existing.hp = item.hp;
+          existing.maxHp = item.maxHp;
+          newEnemies.push(existing);
         } else {
-          if (referee.whistleAnimTimer > 0) referee.whistleAnimTimer -= dt;
-          referee.angerTimer -= dt;
+          newEnemies.push({
+            id: item.id,
+            x: item.x,
+            y: item.y,
+            targetX: item.x,
+            targetY: item.y,
+            angle: item.angle,
+            hp: item.hp,
+            maxHp: item.maxHp,
+            radius: item.radius,
+            isBoss: item.isBoss,
+            tailLength: item.isBoss ? 60 : 35,
+            wiggleOffset: 0
+          });
+        }
+      });
+      state.enemies = newEnemies;
+    }
 
-          const targetBall = balls[0];
-          if (targetBall) {
-            const dx = targetBall.x - referee.x;
-            const dy = targetBall.y - referee.y;
-            const dist = Math.hypot(dx, dy);
-            if (dist > 100) {
-              referee.vx += (dx / dist) * 0.35;
-              referee.vy += (dy / dist) * 0.35;
-              referee.facingAngle = Math.atan2(dy, dx);
-            }
-          }
+    // --- メインゲーム更新ロジック (Delta-Time 物理演算) ---
+    function updateGameLogic(dt) {
+      if (state.gameStatus !== 'RUNNING') return;
 
-          if (referee.angerTimer <= 0) {
-            referee.angerTimer = 6.0 + Math.random() * 5.0;
-            players.forEach(p => {
-              if (Math.hypot(referee.x - p.x, referee.y - p.y) < 65) {
-                p.stunTimer = 0.6;
-                p.vx += (p.x - referee.x) * 0.18;
-                p.vy += (p.y - referee.y) * 0.18;
-                dropGrabbed(p);
-                sound.playPunch();
-                showFloatText('審判の怒りパンチ！', p.x, p.y - 30, '#f87171', 19);
-              }
-            });
+      // 自プレイヤーの操作・移動
+      const localPlayer = state.players[state.clientId];
+      if (localPlayer) {
+        updateLocalPlayerInput(localPlayer, dt);
+
+        // カメラのスムーズ追従 (Lerp)
+        state.camera.x += (localPlayer.x - state.camera.x) * 6 * dt;
+        state.camera.y += (localPlayer.y - state.camera.y) * 6 * dt;
+
+        // パケット間引き送信 (約18Hz = 55ms)
+        const now = performance.now();
+        if (now - state.lastPacketTime > 55) {
+          state.lastPacketTime = now;
+          sendPacket({
+            type: 'PLAYER_INPUT_SYNC',
+            x: Math.round(localPlayer.x),
+            y: Math.round(localPlayer.y),
+            angle: localPlayer.angle,
+            hp: localPlayer.hp,
+            isDown: localPlayer.isDown,
+            isAttacking: localPlayer.isAttacking
+          });
+        }
+      }
+
+      // 他プレイヤーの座標補間 (Lerp)
+      Object.values(state.players).forEach(other => {
+        if (other.id !== state.clientId) {
+          other.x += (other.targetX - other.x) * 12 * dt;
+          other.y += (other.targetY - other.y) * 12 * dt;
+        }
+      });
+
+      // 弾丸の更新
+      for (let i = state.projectiles.length - 1; i >= 0; i--) {
+        const p = state.projectiles[i];
+        p.life -= dt;
+
+        // 魔法弾の自動追尾ロジック
+        if (p.isHoming) {
+          let nearestEnemy = null, minD = 500;
+          state.enemies.forEach(e => {
+            const d = Math.hypot(e.x - p.x, e.y - p.y);
+            if (d < minD) { minD = d; nearestEnemy = e; }
+          });
+          if (nearestEnemy) {
+            const targetAngle = Math.atan2(nearestEnemy.y - p.y, nearestEnemy.x - p.x);
+            // 緩やかに角度変更
+            let diff = targetAngle - p.angle;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            p.angle += diff * 6 * dt;
+            p.vx = Math.cos(p.angle) * p.speed;
+            p.vy = Math.sin(p.angle) * p.speed;
           }
         }
 
-        referee.x += referee.vx;
-        referee.y += referee.vy;
-        referee.vx *= 0.88;
-        referee.vy *= 0.88;
-        referee.x = Math.max(PITCH.x - 50, Math.min(PITCH.x + PITCH.w + 50, referee.x));
-        referee.y = Math.max(PITCH.y - 50, Math.min(PITCH.y + PITCH.h + 50, referee.y));
-      }
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
 
-      // AIプレイヤーの操作
-      players.forEach(bot => {
-        if (bot.isLocal) return;
-        if (!isSoloMode && bot.netId) return; // 他の人間プレイヤーは除外
+        // ホスト側：弾丸と敵の当たり判定
+        if (state.isHost) {
+          for (let j = state.enemies.length - 1; j >= 0; j--) {
+            const e = state.enemies[j];
+            const dist = Math.hypot(e.x - p.x, e.y - p.y);
+            if (dist < e.radius + p.radius) {
+              // 着弾
+              e.hp -= p.damage;
+              sendPacket({
+                type: 'ENEMY_HIT_EVENT',
+                x: e.x, y: e.y, damage: p.damage, color: p.color
+              });
+              createParticles(e.x, e.y, p.color, 4);
+              createFloatingText(e.x, e.y - 10, '-' + p.damage, '#f87171');
+              sound.play('hit');
 
-        if (bot.stunTimer > 0) { bot.stunTimer -= dt; return; }
-        if (bot.whiffTimer > 0) { bot.whiffTimer -= dt; return; }
-        if (bot.slowTimer > 0) bot.slowTimer -= dt;
-        Object.keys(bot.cds).forEach(k => { if (bot.cds[k] > 0) bot.cds[k] -= dt; });
+              // 爆発属性 (爆弾兵)
+              if (p.isAoe) {
+                createParticles(p.x, p.y, '#f97316', 18);
+                sound.play('explode');
+                state.enemies.forEach(otherE => {
+                  if (otherE !== e && Math.hypot(otherE.x - p.x, otherE.y - p.y) < 110) {
+                    otherE.hp -= p.damage * 0.7;
+                  }
+                });
+              }
 
-        if (matchState !== 'PLAYING') return;
-
-        if (bot.isIntruder) {
-          const nearestPlayer = players.find(p => p.id !== bot.id);
-          if (nearestPlayer) {
-            const dx = nearestPlayer.x - bot.x;
-            const dy = nearestPlayer.y - bot.y;
-            bot.facingAngle = Math.atan2(dy, dx);
-            bot.facingX = Math.cos(bot.facingAngle);
-            bot.facingY = Math.sin(bot.facingAngle);
-            bot.vx += bot.facingX * 0.6;
-            bot.vy += bot.facingY * 0.6;
-            if (Math.hypot(dx, dy) < 200 && bot.cds.extinguisher <= 0) {
-              executeExtinguisher(bot);
+              p.life = 0;
+              break;
             }
           }
+        }
+
+        if (p.life <= 0) {
+          state.projectiles.splice(i, 1);
+        }
+      }
+
+      // ホスト用：敵のAI・攻撃・死亡・同期処理
+      if (state.isHost) {
+        updateHostEnemyLogic(dt);
+      }
+
+      // パーティクル＆ポップアップ更新
+      updateEffects(dt);
+    }
+
+    // --- ローカルプレイヤーの移動・攻撃入力 ---
+    function updateLocalPlayerInput(p, dt) {
+      if (p.isDown) {
+        // ダウン中：移動不可。近くの生存味方がいれば蘇生ゲージ上昇
+        let helperNearby = false;
+        Object.values(state.players).forEach(other => {
+          if (other.id !== p.id && !other.isDown) {
+            const d = Math.hypot(other.x - p.x, other.y - p.y);
+            if (d < 75) helperNearby = true;
+          }
+        });
+
+        if (helperNearby) {
+          p.reviveProgress += dt * 0.45; // 約2.2秒で復活
+          if (p.reviveProgress >= 1) {
+            p.isDown = false;
+            p.hp = Math.floor(p.maxHp * 0.6);
+            p.reviveProgress = 0;
+            createFloatingText(p.x, p.y - 20, '復活成功!!', '#10b981');
+          }
+        } else {
+          p.reviveProgress = Math.max(0, p.reviveProgress - dt * 0.2);
+        }
+        return;
+      }
+
+      // 移動入力
+      let dx = 0, dy = 0;
+      if (state.keys['KeyW'] || state.keys['ArrowUp']) dy -= 1;
+      if (state.keys['KeyS'] || state.keys['ArrowDown']) dy += 1;
+      if (state.keys['KeyA'] || state.keys['ArrowLeft']) dx -= 1;
+      if (state.keys['KeyD'] || state.keys['ArrowRight']) dx += 1;
+
+      if (dx !== 0 && dy !== 0) {
+        dx *= 0.7071;
+        dy *= 0.7071;
+      }
+
+      const spd = p.speed * (p.buffs?.spdMult || 1);
+      p.x += dx * spd * dt;
+      p.y += dy * spd * dt;
+
+      // ワールド境界制限
+      p.x = Math.max(100, Math.min(state.worldWidth - 100, p.x));
+      p.y = Math.max(100, Math.min(state.worldHeight - 100, p.y));
+
+      // マウスエイム
+      p.angle = Math.atan2(state.mouse.worldY - p.y, state.mouse.worldX - p.x);
+
+      // クールダウン減衰
+      if (p.cooldownTimer > 0) p.cooldownTimer -= dt;
+
+      // 攻撃トリガー (長押しオートまたはワンクリック)
+      const cls = CLASS_DEFINITIONS[p.classId] || CLASS_DEFINITIONS.barehand;
+      if (cls.auto && state.mouse.isDown && p.cooldownTimer <= 0) {
+        executePlayerAttack(p, cls);
+      }
+    }
+
+    // --- プレイヤー武器アクション実行 ---
+    function executePlayerAttack(p, cls) {
+      if (p.isDown || cls.type === 'none') return;
+      p.cooldownTimer = p.cd;
+      p.isAttacking = true;
+      setTimeout(() => { p.isAttacking = false; }, 120);
+
+      const atkVal = p.atk * (p.buffs?.atkMult || 1);
+
+      if (cls.type === 'melee') {
+        // 近接攻撃 (素手・ナイフ・槍)
+        sound.play('hit');
+        // 近接扇形判定
+        if (state.isHost) {
+          state.enemies.forEach(e => {
+            const dist = Math.hypot(e.x - p.x, e.y - p.y);
+            if (dist < cls.range + e.radius) {
+              const angToEnemy = Math.atan2(e.y - p.y, e.x - p.x);
+              let diff = Math.abs(angToEnemy - p.angle);
+              while (diff > Math.PI) diff = Math.PI * 2 - diff;
+              if (diff < 0.8) {
+                e.hp -= atkVal;
+                createParticles(e.x, e.y, cls.color, 5);
+                createFloatingText(e.x, e.y - 10, '-' + atkVal, '#f87171');
+              }
+            }
+          });
+        }
+      } else if (cls.type === 'projectile' || cls.type === 'projectile_aoe') {
+        // 直線弾・グレネード (拳銃・機銃・爆弾)
+        sound.play('shoot');
+        state.projectiles.push({
+          x: p.x + Math.cos(p.angle) * 22,
+          y: p.y + Math.sin(p.angle) * 22,
+          vx: Math.cos(p.angle) * cls.projSpeed,
+          vy: Math.sin(p.angle) * cls.projSpeed,
+          radius: cls.type === 'projectile_aoe' ? 7 : 4,
+          damage: atkVal,
+          color: cls.color,
+          isAoe: cls.type === 'projectile_aoe',
+          life: cls.range / cls.projSpeed
+        });
+      } else if (cls.type === 'magic_homing_dual') {
+        // 強化魔法兵：左右2連ホーミング魔法弾
+        sound.play('magic');
+        const spreads = [-0.22, 0.22];
+        spreads.forEach(offsetAngle => {
+          const finalAngle = p.angle + offsetAngle;
+          state.projectiles.push({
+            x: p.x + Math.cos(finalAngle) * 20,
+            y: p.y + Math.sin(finalAngle) * 20,
+            angle: finalAngle,
+            speed: cls.projSpeed,
+            vx: Math.cos(finalAngle) * cls.projSpeed,
+            vy: Math.sin(finalAngle) * cls.projSpeed,
+            radius: 5,
+            damage: atkVal,
+            color: cls.color,
+            isHoming: true,
+            life: cls.range / cls.projSpeed
+          });
+        });
+      }
+    }
+
+    // --- ホスト用：敵のAI・攻撃・死亡・同期処理 ---
+    function updateHostEnemyLogic(dt) {
+      const ovum = state.ovum;
+
+      // ウェーブスポーン処理
+      state.spawnTimer += dt;
+      if (state.spawnTimer > Math.max(0.4, 1.8 - state.wave * 0.08)) {
+        state.spawnTimer = 0;
+        hostSpawnNextEnemy();
+      }
+
+      for (let i = state.enemies.length - 1; i >= 0; i--) {
+        const e = state.enemies[i];
+
+        // 死亡判定
+        if (e.hp <= 0) {
+          const coinReward = e.isBoss ? (15 + state.wave * 5) : Math.floor(1 + Math.random() * 3);
+          state.coins += coinReward;
+          state.matchCoins += coinReward;
+          saveCoinData();
+
+          sendPacket({
+            type: 'ENEMY_KILLED_EVENT',
+            x: e.x, y: e.y, coins: coinReward
+          });
+          createParticles(e.x, e.y, '#f43f5e', 14);
+          createFloatingText(e.x, e.y - 15, '+' + coinReward + ' 🪙', '#fbbf24');
+          sound.play('explode');
+
+          state.enemies.splice(i, 1);
+          state.waveRemainingEnemies--;
+          continue;
+        }
+
+        // ターゲット選定 (卵子 or プレイヤー)
+        let targetX = ovum.x;
+        let targetY = ovum.y;
+
+        if (e.targetGoal === 'player' || (e.targetGoal === 'hybrid' && Math.random() < 0.05)) {
+          // 最寄りの生存プレイヤーを追跡
+          let nearP = null, minD = 9999;
+          Object.values(state.players).forEach(pl => {
+            if (!pl.isDown) {
+              const d = Math.hypot(pl.x - e.x, pl.y - e.y);
+              if (d < minD) { minD = d; nearP = pl; }
+            }
+          });
+          if (nearP) {
+            targetX = nearP.x;
+            targetY = nearP.y;
+          }
+        }
+
+        const dx = targetX - e.x;
+        const dy = targetY - e.y;
+        const dist = Math.hypot(dx, dy) || 1;
+
+        e.angle = Math.atan2(dy, dx);
+        e.wiggleOffset += dt * 14;
+
+        // 移動
+        e.x += (dx / dist) * e.speed * dt;
+        e.y += (dy / dist) * e.speed * dt;
+
+        // 卵子への到達判定 (即死・受精成立判定)
+        const distToOvum = Math.hypot(e.x - ovum.x, e.y - ovum.y);
+        if (distToOvum < ovum.radius + e.radius * 0.7) {
+          // 精子が受精卵に到達！！ ゲームオーバー
+          triggerGameOverAll();
           return;
         }
 
-        const ball = balls[0];
-        if (ball) {
-          const dx = ball.x - bot.x;
-          const dy = ball.y - bot.y;
-          bot.facingAngle = Math.atan2(dy, dx);
-          bot.facingX = Math.cos(bot.facingAngle);
-          bot.facingY = Math.sin(bot.facingAngle);
-
-          const spd = bot.slowTimer > 0 ? 0.35 : 0.65;
-          bot.vx += bot.facingX * spd;
-          bot.vy += bot.facingY * spd;
-
-          players.forEach(enemy => {
-            if (enemy.id !== bot.id && enemy.team !== bot.team) {
-              const edist = Math.hypot(enemy.x - bot.x, enemy.y - bot.y);
-              if (edist < 48 && bot.cds.punch <= 0) {
-                executePunch(bot);
-              } else if (edist < 140 && edist > 80 && bot.cds.tackle <= 0 && (referee.koTimer > 0 || Math.random() < 0.2)) {
-                executeTackle(bot);
-              }
-            }
-          });
-        }
-      });
-    }
-
-    function updatePhysics(dt) {
-      // プレイヤー物理
-      players.forEach(p => {
-        const speed = Math.hypot(p.vx, p.vy);
-        if (speed > 0.2) p.animLegPhase += speed * 0.12;
-
-        if (p.stunTimer > 0) {
-          p.stunTimer -= dt;
-          p.vx *= 0.84;
-          p.vy *= 0.84;
-        } else if (p.whiffTimer > 0) {
-          p.whiffTimer -= dt;
-          p.vx *= 0.84;
-          p.vy *= 0.84;
-        } else {
-          if (p.isLocal && matchState === 'PLAYING') {
-            let mx = 0, my = 0;
-            if (keys.KeyW || keys.ArrowUp) my -= 1;
-            if (keys.KeyS || keys.ArrowDown) my += 1;
-            if (keys.KeyA || keys.ArrowLeft) mx -= 1;
-            if (keys.KeyD || keys.ArrowRight) mx += 1;
-
-            if (mx !== 0 || my !== 0) {
-              const len = Math.hypot(mx, my);
-              p.facingX = mx / len;
-              p.facingY = my / len;
-              p.facingAngle = Math.atan2(p.facingY, p.facingX);
-
-              let accel = p.slowTimer > 0 ? 0.45 : 0.88;
-              if (p.grabbedObject) accel *= 0.65;
-
-              p.vx += p.facingX * accel;
-              p.vy += p.facingY * accel;
-            }
-
-            updatePlayerGrab(p);
-          }
-
-          if (p.slowTimer > 0) p.slowTimer -= dt;
-          Object.keys(p.cds).forEach(k => { if (p.cds[k] > 0) p.cds[k] -= dt; });
-        }
-
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vx *= 0.87;
-        p.vy *= 0.87;
-
-        p.x = Math.max(80, Math.min(WORLD_WIDTH - 80, p.x));
-        p.y = Math.max(60, Math.min(WORLD_HEIGHT - 60, p.y));
-
-        // 障害物との衝突
-        obstacles.forEach(obs => {
-          if (obs.isGrabbedBy === p.id) return;
-          if (obs.radius) {
-            if (Math.hypot(p.x - obs.x, p.y - obs.y) < p.radius + obs.radius) {
-              const a = Math.atan2(p.y - obs.y, p.x - obs.x);
-              p.x = obs.x + Math.cos(a) * (p.radius + obs.radius);
-              p.y = obs.y + Math.sin(a) * (p.radius + obs.radius);
-            }
-          } else if (obs.w) {
-            if (p.x > obs.x - p.radius && p.x < obs.x + obs.w + p.radius &&
-                p.y > obs.y - p.radius && p.y < obs.y + obs.h + p.radius) {
-              p.x -= p.vx * 1.2;
-              p.y -= p.vy * 1.2;
-              p.vx = 0; p.vy = 0;
+        // プレイヤーへの接触攻撃判定
+        Object.values(state.players).forEach(pl => {
+          if (!pl.isDown && Math.hypot(pl.x - e.x, pl.y - e.y) < e.radius + 18) {
+            pl.hp -= 15 * dt;
+            if (pl.hp <= 0) {
+              pl.hp = 0;
+              pl.isDown = true;
+              createFloatingText(pl.x, pl.y - 15, '戦闘不能!!', '#ef4444');
             }
           }
         });
-      });
-
-      // プレイヤー同士の押し出し
-      for (let i = 0; i < players.length; i++) {
-        for (let j = i + 1; j < players.length; j++) {
-          const pA = players[i];
-          const pB = players[j];
-          const dx = pB.x - pA.x;
-          const dy = pB.y - pA.y;
-          const dist = Math.hypot(dx, dy);
-          const minDist = pA.radius + pB.radius;
-          if (dist < minDist && dist > 0) {
-            const overlap = minDist - dist;
-            const nx = dx / dist;
-            const ny = dy / dist;
-            pA.x -= nx * overlap * 0.5;
-            pA.y -= ny * overlap * 0.5;
-            pB.x += nx * overlap * 0.5;
-            pB.y += ny * overlap * 0.5;
-          }
-        }
       }
 
-      // ボール物理 ＆ ゴール判定（ホストまたはソロ時のみ判定）
-      if (isSoloMode || isHost) {
-        balls.forEach((b) => {
-          b.x += b.vx;
-          b.y += b.vy;
-          b.vx *= 0.986;
-          b.vy *= 0.986;
+      // 全滅判定（ウェーブクリア）
+      if (state.waveSpawnedEnemies >= state.waveTotalEnemies && state.enemies.length === 0) {
+        state.waveActive = false;
+        sound.play('wave_clear');
+        const nextWave = state.wave + 1;
+        sendPacket({
+          type: 'WAVE_INTERMISSION_TRIGGER',
+          nextWave
+        });
+        openWaveIntermissionShop(nextWave);
+      }
 
-          // PLAYING中のみゴール判定（連打バグの完全防止）
-          if (matchState === 'PLAYING') {
-            // 左ゴール判定（赤組の得点）
-            if (b.x - b.radius < leftGoal.x + leftGoal.w && b.x + b.radius > leftGoal.x) {
-              if (b.y > leftGoal.y && b.y < leftGoal.y + leftGoal.h) {
-                score.red++;
-                matchState = 'GOAL_PAUSE';
-                b.vx = 0; b.vy = 0;
-                sound.playGoalSiren();
-                triggerScreenShake(20);
-                setTimeout(() => startRoundReset('red'), 800);
-                return;
-              }
-            }
+      // ホスト定期同期ブロードキャスト
+      broadcastHostTick();
+    }
 
-            // 右ゴール判定（青組の得点）
-            if (b.x + b.radius > rightGoal.x && b.x - b.radius < rightGoal.x + rightGoal.w) {
-              if (b.y > rightGoal.y && b.y < rightGoal.y + rightGoal.h) {
-                score.blue++;
-                matchState = 'GOAL_PAUSE';
-                b.vx = 0; b.vy = 0;
-                sound.playGoalSiren();
-                triggerScreenShake(20);
-                setTimeout(() => startRoundReset('blue'), 800);
-                return;
-              }
-            }
-          }
-
-          // 外壁バウンド
-          if (b.x - b.radius < PITCH.x - 30) { b.x = PITCH.x - 30 + b.radius; b.vx *= -0.85; }
-          if (b.x + b.radius > PITCH.x + PITCH.w + 30) { b.x = PITCH.x + PITCH.w + 30 - b.radius; b.vx *= -0.85; }
-          if (b.y - b.radius < PITCH.y - 20) { b.y = PITCH.y - 20 + b.radius; b.vy *= -0.85; }
-          if (b.y + b.radius > PITCH.y + PITCH.h + 20) { b.y = PITCH.y + PITCH.h + 20 - b.radius; b.vy *= -0.85; }
-
-          // ボールとプレイヤーのキック判定
-          players.forEach(p => {
-            const d = Math.hypot(b.x - p.x, b.y - p.y);
-            if (d < b.radius + p.radius) {
-              const angle = Math.atan2(b.y - p.y, b.x - p.x);
-              const kickPower = Math.hypot(p.vx, p.vy) + 6.2;
-              b.vx = Math.cos(angle) * kickPower;
-              b.vy = Math.sin(angle) * kickPower;
-              sound.playKick();
-              addParticle(b.x, b.y, b.vx * 0.3, b.vy * 0.3, '#ffffff', 6, 0.2);
-            }
-          });
-
-          // ボールと備品の衝突
-          obstacles.forEach(obs => {
-            if (obs.w) {
-              if (b.x > obs.x && b.x < obs.x + obs.w && b.y > obs.y && b.y < obs.y + obs.h) {
-                b.vx *= -0.9; b.vy *= -0.9;
-                sound.playKick();
-              }
-            }
-          });
+    // --- 視覚エフェクトとパーティクル更新 ---
+    function createParticles(x, y, color, count = 8) {
+      for (let i = 0; i < count; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 60 + Math.random() * 120;
+        state.particles.push({
+          x, y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd,
+          color,
+          radius: 2.5 + Math.random() * 2.5,
+          alpha: 1,
+          life: 0.4 + Math.random() * 0.3
         });
       }
-
-      // カウントダウン処理
-      if (matchState === 'COUNTDOWN') {
-        countdownTimer -= dt;
-        const curVal = Math.ceil(countdownTimer);
-        if (curVal !== countdownValue && curVal > 0) {
-          countdownValue = curVal;
-          sound.playCountdownBeep(false);
-          showBigAlert(String(countdownValue), 'まもなく開始！', 'text-yellow-400', 0);
-        } else if (countdownTimer <= 0) {
-          matchState = 'PLAYING';
-          sound.playCountdownBeep(true);
-          showBigAlert('START!!', '試合開始！', 'text-emerald-400', 800);
-        }
-      }
-
-      // カメラ追従
-      const pLocal = players.find(p => p.id === localPlayerId) || players[0];
-      if (pLocal) {
-        camera.targetX = pLocal.x - camera.w / 2;
-        camera.targetY = pLocal.y - camera.h / 2;
-        camera.x += (camera.targetX - camera.x) * 0.12;
-        camera.y += (camera.targetY - camera.y) * 0.12;
-        camera.x = Math.max(0, Math.min(WORLD_WIDTH - camera.w, camera.x));
-        camera.y = Math.max(0, Math.min(WORLD_HEIGHT - camera.h, camera.y));
-      }
-
-      // パーティクル＆浮遊テキスト
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const pt = particles[i];
-        pt.x += pt.vx; pt.y += pt.vy; pt.life -= dt;
-        if (pt.life <= 0) particles.splice(i, 1);
-      }
-      for (let i = floatingTexts.length - 1; i >= 0; i--) {
-        const ft = floatingTexts[i];
-        ft.y += ft.vy; ft.alpha -= dt * 0.9;
-        if (ft.alpha <= 0) floatingTexts.splice(i, 1);
-      }
-      if (screenShake > 0) screenShake *= 0.88;
     }
 
-    /* ==========================================================================
-       8. 描画
-       ========================================================================== */
-    function drawHumanoid(ctx, p) {
-      ctx.save();
-      ctx.translate(p.x, p.y);
-
-      if (p.stunTimer > 0) {
-        ctx.fillStyle = 'rgba(234, 179, 8, 0.25)';
-        ctx.beginPath();
-        ctx.arc(0, 0, p.radius + 12, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.beginPath();
-      ctx.ellipse(0, 8, p.radius * 0.9, p.radius * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.rotate(p.facingAngle - Math.PI / 2);
-
-      const legBob = Math.sin(p.animLegPhase) * 6;
-      ctx.fillStyle = '#1e293b';
-      ctx.beginPath();
-      ctx.ellipse(-8 + legBob, -14, 5, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(8 - legBob, -14, 5, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      const jerseyColor = p.isIntruder ? '#991b1b' : (p.team === 'blue' ? '#2563eb' : '#dc2626');
-      ctx.fillStyle = jerseyColor;
-      ctx.beginPath();
-      ctx.roundRect(-16, -10, 32, 22, 6);
-      ctx.fill();
-      ctx.strokeStyle = p.isLocal ? '#facc15' : '#0f172a';
-      ctx.lineWidth = p.isLocal ? 3 : 2;
-      ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'black 11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(p.isIntruder ? '🧯' : p.number, 0, 0);
-
-      let lHandX = -18, rHandX = 18, handY = 8;
-      if (p.actionState === 'punching') rHandX += 14;
-      if (p.grabbedObject) handY += 12;
-
-      ctx.fillStyle = '#fbcfe8';
-      ctx.beginPath();
-      ctx.arc(lHandX, handY, 5, 0, Math.PI * 2);
-      ctx.arc(rHandX, handY, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = '#fbcfe8';
-      ctx.beginPath();
-      ctx.arc(0, 2, 12, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = p.hairColor;
-      ctx.beginPath();
-      ctx.arc(0, -1, 12, Math.PI, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-
-      // 頭上ステータス表示
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.textAlign = 'center';
-
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillStyle = p.isLocal ? '#fde047' : '#ffffff';
-      ctx.fillText(p.name, 0, -32);
-
-      if (p.stunTimer > 0) {
-        const starTime = Date.now() * 0.006;
-        for (let i = 0; i < 3; i++) {
-          const a = starTime + (i * Math.PI * 2) / 3;
-          const sx = Math.cos(a) * 22;
-          const sy = Math.sin(a) * 9 - 42;
-          ctx.fillStyle = '#fbbf24';
-          ctx.font = 'bold 13px sans-serif';
-          ctx.fillText('★', sx, sy);
-        }
-      } else if (p.whiffTimer > 0) {
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 11px sans-serif';
-        ctx.fillText('大隙！', 0, -44);
-      }
-
-      if (p.yellowCards > 0 && !p.isIntruder) {
-        ctx.fillStyle = '#eab308';
-        ctx.fillRect(14, -28, 12, 15);
-        ctx.fillStyle = '#000000';
-        ctx.font = 'bold 10px sans-serif';
-        ctx.fillText(p.yellowCards, 20, -16);
-      }
-      ctx.restore();
+    function createFloatingText(x, y, text, color = '#ffffff') {
+      state.floatingTexts.push({
+        x, y, text, color, alpha: 1, life: 0.85
+      });
     }
 
-    function renderMain() {
+    function updateEffects(dt) {
+      for (let i = state.particles.length - 1; i >= 0; i--) {
+        const pt = state.particles[i];
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+        pt.life -= dt;
+        pt.alpha = Math.max(0, pt.life / 0.5);
+        if (pt.life <= 0) state.particles.splice(i, 1);
+      }
+
+      for (let i = state.floatingTexts.length - 1; i >= 0; i--) {
+        const ft = state.floatingTexts[i];
+        ft.y -= 30 * dt;
+        ft.life -= dt;
+        ft.alpha = Math.max(0, ft.life / 0.85);
+        if (ft.life <= 0) state.floatingTexts.splice(i, 1);
+      }
+    }
+
+    // --- メインCanvas描画ルーチン ---
+    function renderWorld() {
+      const { ctx, canvas } = state;
+      if (!ctx || !canvas) return;
+
+      // 画面クリア
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
       ctx.save();
+      // カメラオフセット変換
+      const cx = canvas.width / 2 - state.camera.x;
+      const cy = canvas.height / 2 - state.camera.y;
+      ctx.translate(cx, cy);
 
-      if (screenShake > 0) {
-        ctx.translate((Math.random() - 0.5) * screenShake * 2, (Math.random() - 0.5) * screenShake * 2);
-      }
+      // 背景グリッド描画
+      drawWorldGrid();
 
-      ctx.translate(-camera.x, -camera.y);
+      // 卵子（メスライオン）描画
+      drawOvum();
 
-      // フィールド
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-
-      ctx.fillStyle = '#991b1b';
-      ctx.fillRect(PITCH.x - 70, PITCH.y - 60, PITCH.w + 140, PITCH.h + 120);
-
-      ctx.fillStyle = '#15803d';
-      ctx.fillRect(PITCH.x, PITCH.y, PITCH.w, PITCH.h);
-
-      ctx.fillStyle = '#166534';
-      for (let x = PITCH.x; x < PITCH.x + PITCH.w; x += 160) {
-        ctx.fillRect(x, PITCH.y, 80, PITCH.h);
-      }
-
-      // 白線
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(PITCH.x, PITCH.y, PITCH.w, PITCH.h);
-
-      ctx.beginPath();
-      ctx.moveTo(PITCH.x + PITCH.w / 2, PITCH.y);
-      ctx.lineTo(PITCH.x + PITCH.w / 2, PITCH.y + PITCH.h);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(PITCH.x + PITCH.w / 2, PITCH.y + PITCH.h / 2, 130, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.strokeRect(PITCH.x, PITCH.y + PITCH.h / 2 - 200, 220, 400);
-      ctx.strokeRect(PITCH.x + PITCH.w - 220, PITCH.y + PITCH.h / 2 - 200, 220, 400);
-
-      // ゴール
-      [leftGoal, rightGoal].forEach(g => {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-        ctx.fillRect(g.x, g.y, g.w, g.h);
-        ctx.strokeStyle = g.team === 'blue' ? '#38bdf8' : '#fb7185';
-        ctx.lineWidth = 5;
-        ctx.strokeRect(g.x, g.y, g.w, g.h);
-
-        ctx.fillStyle = '#ffffff';
+      // 弾丸描画
+      state.projectiles.forEach(p => {
         ctx.beginPath();
-        ctx.arc(g.team === 'blue' ? g.x + g.w : g.x, g.y, 8, 0, Math.PI * 2);
-        ctx.arc(g.team === 'blue' ? g.x + g.w : g.x, g.y + g.h, 8, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = p.color || '#fff';
+        ctx.shadowColor = p.color || '#fff';
+        ctx.shadowBlur = 8;
         ctx.fill();
-
-        if (g.isGrabbedBy) {
-          ctx.fillStyle = '#fef08a';
-          ctx.font = 'bold 12px sans-serif';
-          ctx.fillText('🚚 ゴール移動中！', g.x + g.w / 2, g.y - 10);
-        }
+        ctx.shadowBlur = 0;
       });
 
-      // 備品
-      obstacles.forEach(obs => {
-        if (obs.type === 'bench') {
-          ctx.fillStyle = '#78350f';
-          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-          ctx.strokeStyle = '#451a03';
-          ctx.lineWidth = 2.5;
-          ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
-        } else if (obs.type === 'cone') {
-          ctx.fillStyle = '#ea580c';
-          ctx.beginPath();
-          ctx.arc(obs.x, obs.y, obs.radius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(obs.x, obs.y, obs.radius * 0.45, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (obs.type === 'barricade') {
-          ctx.fillStyle = '#eab308';
-          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-          ctx.fillStyle = '#000000';
-          for (let bx = obs.x; bx < obs.x + obs.w; bx += 20) {
-            ctx.fillRect(bx, obs.y, 10, obs.h);
-          }
-        } else if (obs.type === 'cart') {
-          ctx.fillStyle = '#64748b';
-          ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-          ctx.strokeStyle = '#334155';
-          ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '14px sans-serif';
-          ctx.fillText('⚽×Cart', obs.x + 8, obs.y + 26);
-        }
-      });
-
-      // 審判
-      ctx.save();
-      ctx.translate(referee.x, referee.y);
-      ctx.fillStyle = referee.koTimer > 0 ? '#475569' : '#ffffff';
-      ctx.beginPath();
-      ctx.arc(0, 0, referee.radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(-7, -15, 4, 30);
-      ctx.fillRect(3, -15, 4, 30);
-
-      if (referee.koTimer > 0) {
-        ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('💫 KO', 0, -26);
-      } else if (referee.whistleAnimTimer > 0) {
-        ctx.fillStyle = '#ef4444';
-        ctx.font = 'bold 15px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('笛🟨', 0, -26);
-      }
-      ctx.restore();
+      // 敵（精子・オスライオン）描画
+      drawEnemies();
 
       // プレイヤー描画
-      players.forEach(p => drawHumanoid(ctx, p));
+      drawPlayers();
 
-      // ボール描画
-      balls.forEach(b => {
+      // パーティクル描画
+      state.particles.forEach(pt => {
         ctx.save();
-        ctx.fillStyle = b.color;
+        ctx.globalAlpha = pt.alpha;
         ctx.beginPath();
-        ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = '#0f172a';
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.radius * 0.4, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+        ctx.fillStyle = pt.color;
         ctx.fill();
         ctx.restore();
       });
 
-      // パーティクル
-      particles.forEach(pt => {
-        ctx.fillStyle = pt.color;
-        ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-      });
-
-      // 浮遊テキスト
-      floatingTexts.forEach(ft => {
+      // ダメージポップアップ数値
+      state.floatingTexts.forEach(ft => {
         ctx.save();
-        ctx.globalAlpha = Math.max(0, ft.alpha);
+        ctx.globalAlpha = ft.alpha;
         ctx.fillStyle = ft.color;
-        ctx.font = `bold ${ft.size}px 'Mochiy Pop One', sans-serif`;
+        ctx.font = 'bold 15px sans-serif';
         ctx.textAlign = 'center';
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 3;
-        ctx.strokeText(ft.text, ft.x, ft.y);
         ctx.fillText(ft.text, ft.x, ft.y);
         ctx.restore();
       });
 
       ctx.restore();
+
+      // 画面端レーダー・ナビゲーション矢印 (HUDレイヤー)
+      drawNavigationArrows();
     }
 
-    function renderMinimap() {
-      const mw = minimapCanvas.width;
-      const mh = minimapCanvas.height;
-      const scaleX = mw / WORLD_WIDTH;
-      const scaleY = mh / WORLD_HEIGHT;
+    function drawWorldGrid() {
+      const { ctx, worldWidth, worldHeight } = state;
+      ctx.strokeStyle = 'rgba(236, 72, 153, 0.08)';
+      ctx.lineWidth = 1;
+      const step = 80;
 
-      minimapCtx.clearRect(0, 0, mw, mh);
-      minimapCtx.fillStyle = '#14532d';
-      minimapCtx.fillRect(PITCH.x * scaleX, PITCH.y * scaleY, PITCH.w * scaleX, PITCH.h * scaleY);
-      minimapCtx.strokeStyle = '#ffffff';
-      minimapCtx.lineWidth = 1;
-      minimapCtx.strokeRect(PITCH.x * scaleX, PITCH.y * scaleY, PITCH.w * scaleX, PITCH.h * scaleY);
-
-      minimapCtx.fillStyle = '#38bdf8';
-      minimapCtx.fillRect(leftGoal.x * scaleX, leftGoal.y * scaleY, 4, leftGoal.h * scaleY);
-      minimapCtx.fillStyle = '#fb7185';
-      minimapCtx.fillRect(rightGoal.x * scaleX, rightGoal.y * scaleY, 4, rightGoal.h * scaleY);
-
-      minimapCtx.fillStyle = '#f59e0b';
-      obstacles.forEach(o => {
-        minimapCtx.fillRect(o.x * scaleX, o.y * scaleY, 3, 3);
-      });
-
-      minimapCtx.fillStyle = referee.koTimer > 0 ? '#94a3b8' : '#ffffff';
-      minimapCtx.beginPath();
-      minimapCtx.arc(referee.x * scaleX, referee.y * scaleY, 3, 0, Math.PI * 2);
-      minimapCtx.fill();
-
-      players.forEach(p => {
-        minimapCtx.fillStyle = p.team === 'blue' ? '#38bdf8' : '#f43f5e';
-        minimapCtx.beginPath();
-        minimapCtx.arc(p.x * scaleX, p.y * scaleY, p.isLocal ? 4.5 : 3, 0, Math.PI * 2);
-        minimapCtx.fill();
-        if (p.isLocal) {
-          minimapCtx.strokeStyle = '#facc15';
-          minimapCtx.stroke();
-        }
-      });
-
-      minimapCtx.fillStyle = '#fef08a';
-      balls.forEach(b => {
-        minimapCtx.beginPath();
-        minimapCtx.arc(b.x * scaleX, b.y * scaleY, 3, 0, Math.PI * 2);
-        minimapCtx.fill();
-      });
-
-      minimapCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-      minimapCtx.strokeRect(camera.x * scaleX, camera.y * scaleY, camera.w * scaleX, camera.h * scaleY);
-    }
-
-    /* ==========================================================================
-       9. HUD ＆ イベント設定
-       ========================================================================== */
-    function triggerScreenShake(amount) {
-      screenShake = Math.max(screenShake, amount);
-    }
-
-    function addParticle(x, y, vx, vy, color, size, life) {
-      particles.push({ x, y, vx, vy, color, size, life, maxLife: life });
-    }
-
-    function showFloatText(text, x, y, color = '#facc15', size = 18) {
-      floatingTexts.push({ text, x, y, vy: -1.2, alpha: 1.0, color, size });
-    }
-
-    let alertTimeout = null;
-    function showBigAlert(title, subtitle, colorClass = 'text-yellow-300', duration = 1200) {
-      const box = document.getElementById('big-alert-box');
-      const titleEl = document.getElementById('big-alert-title');
-      const subEl = document.getElementById('big-alert-subtitle');
-      titleEl.className = `game-font text-4xl md:text-6xl ${colorClass} drop-shadow`;
-      titleEl.textContent = title;
-      subEl.textContent = subtitle;
-      box.classList.remove('opacity-0', 'scale-90');
-      box.classList.add('opacity-100', 'scale-100');
-      clearTimeout(alertTimeout);
-      if (duration > 0) {
-        alertTimeout = setTimeout(() => {
-          box.classList.remove('opacity-100', 'scale-100');
-          box.classList.add('opacity-0', 'scale-90');
-        }, duration);
+      for (let x = 0; x <= worldWidth; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, worldHeight);
+        ctx.stroke();
       }
+      for (let y = 0; y <= worldHeight; y += step) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(worldWidth, y);
+        ctx.stroke();
+      }
+
+      // ワールド外枠
+      ctx.strokeStyle = 'rgba(236, 72, 153, 0.35)';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(0, 0, worldWidth, worldHeight);
     }
 
-    function updateHUD() {
-      document.getElementById('score-blue').textContent = score.blue;
-      document.getElementById('score-red').textContent = score.red;
+    function drawOvum() {
+      const { ctx, ovum } = state;
 
-      const p1 = players.find(p => p.id === localPlayerId) || players[0];
-      if (p1) {
-        document.getElementById('hud-yellow-count').textContent = `${p1.yellowCards}/10`;
-        const intruderEl = document.getElementById('hud-intruder-badge');
-        const extBtn = document.getElementById('btn-extinguisher');
+      ctx.save();
+      // 外側パルスオーラ (透明帯バリア)
+      const pulse = Math.sin(performance.now() * 0.003) * 6;
+      ctx.beginPath();
+      ctx.arc(ovum.x, ovum.y, ovum.radius + 18 + pulse, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(244, 63, 94, 0.12)';
+      ctx.fill();
 
-        if (p1.isIntruder) {
-          intruderEl.classList.remove('hidden');
-          extBtn.classList.remove('opacity-40');
-        } else {
-          intruderEl.classList.add('hidden');
-          extBtn.classList.add('opacity-40');
+      // 透明帯境界線
+      ctx.beginPath();
+      ctx.arc(ovum.x, ovum.y, ovum.radius + 10, 0, Math.PI * 2);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#f43f5e';
+      ctx.stroke();
+
+      // 卵子本体核 (メスライオン写真円形描画)
+      drawCircleCroppedImage(ctx, state.femaleLionImg, ovum.x, ovum.y, ovum.radius, '#f43f5e');
+
+      // タレット増設描画
+      if (ovum.turrets > 0) {
+        for (let t = 0; t < ovum.turrets; t++) {
+          const tAng = (Math.PI * 2 / ovum.turrets) * t + performance.now() * 0.001;
+          const tx = ovum.x + Math.cos(tAng) * (ovum.radius + 25);
+          const ty = ovum.y + Math.sin(tAng) * (ovum.radius + 25);
+          ctx.beginPath();
+          ctx.arc(tx, ty, 10, 0, Math.PI * 2);
+          ctx.fillStyle = '#10b981';
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#fff';
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    function drawEnemies() {
+      const { ctx } = state;
+      state.enemies.forEach(e => {
+        ctx.save();
+        ctx.translate(e.x, e.y);
+        ctx.rotate(e.angle);
+
+        // 精子のクネクネ尻尾 (ベジェ曲線)
+        ctx.beginPath();
+        ctx.moveTo(-e.radius * 0.7, 0);
+        const wave = Math.sin(e.wiggleOffset) * (e.radius * 0.6);
+        ctx.quadraticCurveTo(-e.radius * 1.5 - e.tailLength * 0.4, wave, -e.radius - e.tailLength, -wave * 0.5);
+        ctx.lineWidth = Math.max(2, e.radius * 0.22);
+        ctx.strokeStyle = e.isBoss ? '#ef4444' : 'rgba(255, 255, 255, 0.75)';
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // 精子の頭部 (オスライオン写真円形描画)
+        drawCircleCroppedImage(ctx, state.maleLionImg, 0, 0, e.radius, e.isBoss ? '#dc2626' : '#f59e0b');
+
+        // ボス用の威圧オーラ
+        if (e.isBoss) {
+          ctx.beginPath();
+          ctx.arc(0, 0, e.radius + 6, 0, Math.PI * 2);
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 3;
+          ctx.stroke();
         }
 
-        const carryTag = document.getElementById('hud-carrying-tag');
-        if (p1.grabbedObject) carryTag.classList.remove('hidden');
-        else carryTag.classList.add('hidden');
-      }
+        ctx.restore();
 
-      const forceEndBtn = document.getElementById('btn-force-end-match');
-      if (isHost && (matchState === 'PLAYING' || matchState === 'COUNTDOWN')) {
-        forceEndBtn.classList.remove('hidden');
-      } else {
-        forceEndBtn.classList.add('hidden');
-      }
-
-      const goalsBadge = document.getElementById('target-goals-badge');
-      if (isTargetGoalsEnabled) {
-        goalsBadge.classList.remove('hidden');
-        goalsBadge.textContent = `目標: ${targetGoals}点先取`;
-      } else {
-        goalsBadge.classList.add('hidden');
-      }
-
-      if (!isTimeEnabled) {
-        document.getElementById('match-timer').textContent = '無制限';
-      }
-
-      const refBanner = document.getElementById('ref-status-banner');
-      if (referee.koTimer > 0) refBanner.classList.remove('hidden');
-      else refBanner.classList.add('hidden');
+        // HPバー
+        const hpRatio = Math.max(0, e.hp / e.maxHp);
+        const barW = e.isBoss ? 70 : 28;
+        const barH = e.isBoss ? 7 : 4;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(e.x - barW / 2, e.y - e.radius - 8, barW, barH);
+        ctx.fillStyle = e.isBoss ? '#ef4444' : '#10b981';
+        ctx.fillRect(e.x - barW / 2, e.y - e.radius - 8, barW * hpRatio, barH);
+      });
     }
 
-    function updateCooldownGauges() {
-      const p1 = players.find(p => p.id === localPlayerId) || players[0];
-      if (!p1) return;
+    function drawPlayers() {
+      const { ctx } = state;
 
-      const setScale = (id, cur, max) => {
-        const el = document.getElementById(id);
-        if (el) el.style.transform = `scaleY(${Math.max(0, Math.min(1, cur / max))})`;
-      };
+      Object.values(state.players).forEach(p => {
+        const cls = CLASS_DEFINITIONS[p.classId] || CLASS_DEFINITIONS.barehand;
+        ctx.save();
+        ctx.translate(p.x, p.y);
 
-      setScale('cd-punch', p1.cds.punch, CD_PUNCH);
-      setScale('cd-slide', p1.cds.slide, CD_SLIDE);
-      setScale('cd-tackle', p1.cds.tackle, CD_TACKLE);
-      setScale('cd-extinguisher', p1.cds.extinguisher, CD_EXTINGUISHER);
+        // ダウン状態の描画
+        if (p.isDown) {
+          ctx.beginPath();
+          ctx.arc(0, 0, 20, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+          ctx.fill();
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.fillStyle = '#f87171';
+          ctx.font = 'bold 16px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('💀 SOS', 0, -26);
+
+          if (p.reviveProgress > 0) {
+            ctx.fillStyle = '#10b981';
+            ctx.fillRect(-20, 24, 40 * p.reviveProgress, 5);
+          }
+          ctx.restore();
+          return;
+        }
+
+        // 武器描画 (回転エイム)
+        ctx.save();
+        ctx.rotate(p.angle);
+        ctx.fillStyle = cls.color;
+        ctx.shadowColor = cls.color;
+        ctx.shadowBlur = 6;
+
+        if (cls.type === 'melee') {
+          // 武器の突き・振り
+          const reach = p.isAttacking ? cls.range * 0.7 : 22;
+          ctx.fillRect(10, -4, reach, 8);
+        } else if (cls.type !== 'none') {
+          // 銃口
+          ctx.fillRect(12, -3, 16, 6);
+        }
+        ctx.shadowBlur = 0;
+        ctx.restore();
+
+        // プレイヤー胴体
+        ctx.beginPath();
+        ctx.arc(0, 0, 18, 0, Math.PI * 2);
+        ctx.fillStyle = cls.color;
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = (p.id === state.clientId) ? '#ffffff' : '#cbd5e1';
+        ctx.stroke();
+
+        // アイコン
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.name.substring(0, 2), 0, 0);
+
+        // ネームタグとHPバー
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(p.name, 0, -26);
+
+        const hpRatio = Math.max(0, p.hp / p.maxHp);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(-18, -22, 36, 4);
+        ctx.fillStyle = (hpRatio > 0.3) ? '#10b981' : '#ef4444';
+        ctx.fillRect(-18, -22, 36 * hpRatio, 4);
+
+        ctx.restore();
+      });
     }
 
-    function resizeGame() {
-      const container = document.getElementById('game-canvas-container');
-      if (!container) return;
-      canvas.width = container.clientWidth || window.innerWidth;
-      canvas.height = container.clientHeight || (window.innerHeight - 120);
-      camera.w = canvas.width;
-      camera.h = canvas.height;
-    }
-    window.addEventListener('resize', resizeGame);
+    // --- 画面端のナビゲーション矢印 (卵子・ボス・味方SOS) ---
+    function drawNavigationArrows() {
+      const { ctx, canvas, ovum } = state;
+      const pad = 45;
 
-    window.addEventListener('keydown', (e) => {
-      sound.init();
-      if (keys.hasOwnProperty(e.code)) keys[e.code] = true;
+      // 卵子へのナビゲーション
+      drawSinglePointer(ovum.x, ovum.y, '🥚 卵子', '#f43f5e', pad);
 
-      const p1 = players.find(p => p.id === localPlayerId) || players[0];
-      if (!p1) return;
-
-      if (e.code === 'KeyZ') executePunch(p1);
-      if (e.code === 'KeyX') executeSlide(p1);
-      if (e.code === 'KeyC') executeTackle(p1);
-      if (e.code === 'KeyV') {
-        isGrabToggled = !isGrabToggled;
-        if (!isGrabToggled) dropGrabbed(p1);
+      // ボスへのナビゲーション (画面外にいる場合)
+      const boss = state.enemies.find(e => e.isBoss);
+      if (boss) {
+        drawSinglePointer(boss.x, boss.y, '⚠️ BOSS', '#ef4444', pad + 15);
       }
-      if (e.code === 'Space') {
-        e.preventDefault();
-        executeExtinguisher(p1);
-      }
-    });
 
-    window.addEventListener('keyup', (e) => {
-      if (keys.hasOwnProperty(e.code)) keys[e.code] = false;
-    });
-
-    function setupControls() {
-      const getP = () => players.find(p => p.id === localPlayerId) || players[0];
-
-      const bindAction = (id, fn) => {
-        const el = document.getElementById(id);
-        el.addEventListener('touchstart', (e) => { e.preventDefault(); sound.init(); fn(getP()); }, { passive: false });
-        el.addEventListener('click', () => { sound.init(); fn(getP()); });
-      };
-
-      bindAction('btn-punch', p => executePunch(p));
-      bindAction('btn-slide', p => executeSlide(p));
-      bindAction('btn-tackle', p => executeTackle(p));
-      bindAction('btn-extinguisher', p => executeExtinguisher(p));
-
-      const grabBtn = document.getElementById('btn-grab');
-      const toggleGrab = (e) => {
-        if (e) e.preventDefault();
-        sound.init();
-        const p = getP();
-        isGrabToggled = !isGrabToggled;
-        keys.KeyV = isGrabToggled;
-        if (!isGrabToggled) dropGrabbed(p);
-      };
-      grabBtn.addEventListener('touchstart', toggleGrab, { passive: false });
-      grabBtn.addEventListener('click', toggleGrab);
-
-      document.getElementById('btn-force-end-match').addEventListener('click', () => {
-        if (isHost && (matchState === 'PLAYING' || matchState === 'COUNTDOWN')) {
-          sound.playWhistle();
-          triggerMatchEnd('host_forced');
+      // ダウンした味方へのナビゲーション
+      Object.values(state.players).forEach(p => {
+        if (p.isDown && p.id !== state.clientId) {
+          drawSinglePointer(p.x, p.y, `🆘 ${p.name}`, '#eab308', pad);
         }
       });
-
-      document.getElementById('btn-sound-toggle').addEventListener('click', () => {
-        sound.enabled = !sound.enabled;
-        const icon = document.getElementById('sound-icon');
-        icon.className = sound.enabled ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark text-slate-500';
-      });
     }
 
-    function showScreen(name) {
-      document.getElementById('screen-title').classList.add('hidden');
-      document.getElementById('screen-lobby').classList.add('hidden');
-      document.getElementById('screen-result').classList.add('hidden');
+    function drawSinglePointer(targetX, targetY, label, color, pad) {
+      const { ctx, canvas, camera } = state;
+      const screenTargetX = canvas.width / 2 + (targetX - camera.x);
+      const screenTargetY = canvas.height / 2 + (targetY - camera.y);
 
-      if (name === 'TITLE') document.getElementById('screen-title').classList.remove('hidden');
-      if (name === 'LOBBY') document.getElementById('screen-lobby').classList.remove('hidden');
-      if (name === 'RESULT') document.getElementById('screen-result').classList.remove('hidden');
+      // 画面内に入っている場合はポインターを描画しない
+      if (screenTargetX >= pad && screenTargetX <= canvas.width - pad &&
+          screenTargetY >= pad && screenTargetY <= canvas.height - pad) {
+        return;
+      }
+
+      const dx = screenTargetX - canvas.width / 2;
+      const dy = screenTargetY - canvas.height / 2;
+      const angle = Math.atan2(dy, dx);
+
+      // 画面端の交点座標を計算
+      const edgeX = Math.max(pad, Math.min(canvas.width - pad, canvas.width / 2 + Math.cos(angle) * (canvas.width / 2 - pad)));
+      const edgeY = Math.max(pad, Math.min(canvas.height - pad, canvas.height / 2 + Math.sin(angle) * (canvas.height / 2 - pad)));
+
+      ctx.save();
+      ctx.translate(edgeX, edgeY);
+      ctx.rotate(angle);
+
+      // 矢印三角形
+      ctx.beginPath();
+      ctx.moveTo(12, 0);
+      ctx.lineTo(-8, -9);
+      ctx.lineTo(-8, 9);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+
+      // ラベル
+      ctx.rotate(-angle);
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.fillText(label, 0, -14);
+
+      ctx.restore();
     }
 
-    function renderLobbyRoster() {
-      const blueList = document.getElementById('lobby-team-blue-list');
-      const redList = document.getElementById('lobby-team-red-list');
-      blueList.innerHTML = '';
-      redList.innerHTML = '';
+    // --- UI コントローラーとイベントバインド ---
+    function updateNetStatus(text, color) {
+      const el = document.getElementById('netStatusTitle');
+      if (!el) return;
+      const colorMap = {
+        green: 'bg-emerald-400',
+        yellow: 'bg-amber-400',
+        red: 'bg-rose-500',
+        amber: 'bg-amber-500'
+      };
+      el.innerHTML = `<span class="w-2 h-2 rounded-full ${colorMap[color] || 'bg-slate-400'} animate-pulse"></span> ${text}`;
+    }
 
-      players.forEach(p => {
-        const item = document.createElement('div');
-        item.className = 'flex items-center justify-between bg-slate-900/80 px-2 py-1 rounded border border-slate-800';
-        item.innerHTML = `
-          <span class="font-bold ${p.id === localPlayerId ? 'text-yellow-400' : 'text-slate-200'}">
-            ${p.name} ${p.id === localPlayerId ? '(あなた)' : (p.netId ? '(オンライン)' : '(AI)')}
+    function updateLobbyUI() {
+      const listEl = document.getElementById('lobbyMemberList');
+      const countEl = document.getElementById('lobbyMemberCount');
+      if (!listEl || !countEl) return;
+
+      const playerArr = Object.values(state.players);
+      countEl.innerText = playerArr.length;
+      listEl.innerHTML = '';
+
+      playerArr.forEach(p => {
+        const cls = CLASS_DEFINITIONS[p.classId] || CLASS_DEFINITIONS.barehand;
+        const isMe = (p.id === state.clientId);
+        const card = document.createElement('div');
+        card.className = `p-2.5 rounded-xl border flex items-center justify-between ${
+          isMe ? 'bg-indigo-950/70 border-indigo-500/80' : 'bg-slate-800/60 border-slate-700/60'
+        }`;
+        card.innerHTML = `
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white" style="background-color: ${cls.color}">
+              <i class="fa-solid ${cls.icon}"></i>
+            </div>
+            <div>
+              <div class="text-xs font-black flex items-center gap-1.5">
+                <span>${p.name}</span>
+                ${isMe ? '<span class="text-[9px] bg-indigo-500 px-1.5 py-0.2 rounded text-white font-extrabold">YOU</span>' : ''}
+                ${p.isHost ? '<i class="fa-solid fa-crown text-yellow-400 text-xs" title="ホスト"></i>' : ''}
+              </div>
+              <div class="text-[10px] text-slate-400 font-bold">${cls.name}</div>
+            </div>
+          </div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${isMe ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40' : 'bg-slate-900 text-slate-400'}">
+            準備完了
           </span>
-          <span class="text-[10px] text-slate-400 font-mono">No.${p.number}</span>
         `;
-        if (p.team === 'blue') blueList.appendChild(item);
-        else redList.appendChild(item);
+        listEl.appendChild(card);
+      });
+
+      // ホストコントロール表示切り替え
+      const hostBox = document.getElementById('hostControlBox');
+      const guestBox = document.getElementById('guestWaitBox');
+      if (state.isHost) {
+        if (hostBox) hostBox.classList.remove('hidden');
+        if (guestBox) guestBox.classList.add('hidden');
+      } else {
+        if (hostBox) hostBox.classList.add('hidden');
+        if (guestBox) guestBox.classList.remove('hidden');
+      }
+    }
+
+    function startCountdownAnimation() {
+      const overlay = document.getElementById('countdownOverlay');
+      const numEl = document.getElementById('countdownNumber');
+      if (!overlay || !numEl) return;
+
+      overlay.classList.remove('hidden');
+      let count = 3;
+      numEl.innerText = count;
+      sound.play('coin');
+
+      const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+          numEl.innerText = count;
+          sound.play('coin');
+        } else if (count === 0) {
+          numEl.innerText = 'START!';
+          sound.play('wave_clear');
+        } else {
+          clearInterval(timer);
+          overlay.classList.add('hidden');
+          triggerGameStart();
+        }
+      }, 950);
+    }
+
+    function triggerGameStart() {
+      state.gameStatus = 'RUNNING';
+      document.getElementById('view-title').classList.add('hidden');
+      document.getElementById('view-lobby').classList.add('hidden');
+      document.getElementById('modal-wave-shop').classList.add('hidden');
+      document.getElementById('modal-gameover').classList.add('hidden');
+      document.getElementById('gameHud').classList.remove('hidden');
+
+      if (state.isHost) {
+        setupWaveProgression(1);
+      }
+    }
+
+    function triggerGameOverAll() {
+      state.gameStatus = 'GAMEOVER';
+      sound.play('gameover');
+      sendPacket({
+        type: 'GAME_OVER_TRIGGER',
+        wave: state.wave,
+        coins: state.matchCoins
+      });
+      handleGameOver(state.wave, state.matchCoins);
+    }
+
+    function handleGameOver(wave, coins) {
+      state.gameStatus = 'GAMEOVER';
+      document.getElementById('gameHud').classList.add('hidden');
+      const modal = document.getElementById('modal-gameover');
+      modal.classList.remove('hidden');
+      document.getElementById('goWaveText').innerText = 'Wave ' + wave;
+      document.getElementById('goCoinsText').innerText = '+' + coins + ' 🪙';
+
+      // 突破した精子ライオン顔のドアップ描画
+      const canvas = document.getElementById('lionGameOverCanvas');
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, 96, 96);
+        drawCircleCroppedImage(ctx, state.maleLionImg, 48, 48, 46, '#ef4444');
+      }
+    }
+
+    // --- 兵舎・キャラクター解放・バッジガチャUI描画 ---
+    function renderBarracksShop() {
+      const grid = document.getElementById('barracksClassGrid');
+      const coinText = document.getElementById('barracksCoinCount');
+      if (!grid || !coinText) return;
+
+      coinText.innerText = state.coins.toLocaleString();
+      grid.innerHTML = '';
+
+      Object.values(CLASS_DEFINITIONS).forEach(cls => {
+        const isUnlocked = state.unlockedClasses.includes(cls.id);
+        const isSelected = (state.selectedClassId === cls.id);
+
+        const card = document.createElement('div');
+        card.className = `p-3 rounded-2xl border text-center transition cursor-pointer relative ${
+          isSelected ? 'bg-pink-950/80 border-pink-500 shadow-lg shadow-pink-500/20' : 'bg-slate-800/60 border-slate-700 hover:border-slate-500'
+        }`;
+
+        card.innerHTML = `
+          <div class="w-10 h-10 mx-auto rounded-xl flex items-center justify-center text-lg text-white mb-2 shadow" style="background-color: ${cls.color}">
+            <i class="fa-solid ${cls.icon}"></i>
+          </div>
+          <div class="text-xs font-black text-white mb-0.5">${cls.name}</div>
+          <div class="text-[10px] text-slate-400 mb-2 leading-tight">${cls.desc}</div>
+          ${
+            isUnlocked
+              ? `<button class="w-full py-1 text-[11px] font-black rounded-lg ${isSelected ? 'bg-pink-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">
+                  ${isSelected ? '配備中' : '選択'}
+                 </button>`
+              : `<button class="w-full py-1 text-[10px] font-black rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950">
+                  <i class="fa-solid fa-coins mr-1"></i>${cls.cost.toLocaleString()}
+                 </button>`
+          }
+        `;
+
+        card.onclick = () => {
+          if (isUnlocked) {
+            state.selectedClassId = cls.id;
+            saveUnlockData();
+            if (state.players[state.clientId]) {
+              state.players[state.clientId].classId = cls.id;
+            }
+            renderBarracksShop();
+            renderBadges();
+          } else {
+            // 解放試行
+            if (state.coins >= cls.cost) {
+              state.coins -= cls.cost;
+              state.unlockedClasses.push(cls.id);
+              state.selectedClassId = cls.id;
+              saveCoinData();
+              saveUnlockData();
+              sound.play('coin');
+              renderBarracksShop();
+              renderBadges();
+            } else {
+              alertBox('コインが足りません！ (必要: ' + cls.cost.toLocaleString() + ' コイン)');
+            }
+          }
+        };
+
+        grid.appendChild(card);
       });
     }
 
-    function setupLobbyAndFlow() {
-      const p1 = players[0];
+    function renderBadges() {
+      const container = document.getElementById('badgeSlotContainer');
+      const label = document.getElementById('selectedClassBadgeLabel');
+      if (!container || !label) return;
 
-      const chkTime = document.getElementById('chk-enable-time');
-      const chkGoals = document.getElementById('chk-enable-goals');
-      const timeSelect = document.getElementById('lobby-time-select');
-      const goalsSelect = document.getElementById('lobby-target-goals-select');
+      const cls = CLASS_DEFINITIONS[state.selectedClassId] || CLASS_DEFINITIONS.barehand;
+      label.innerText = cls.name;
 
-      chkTime.addEventListener('change', () => {
-        if (!chkTime.checked && !chkGoals.checked) {
-          chkGoals.checked = true;
-          goalsSelect.disabled = false;
-          goalsSelect.classList.remove('opacity-50');
-        }
-        timeSelect.disabled = !chkTime.checked;
-        if (chkTime.checked) timeSelect.classList.remove('opacity-50');
-        else timeSelect.classList.add('opacity-50');
-      });
-
-      chkGoals.addEventListener('change', () => {
-        if (!chkGoals.checked && !chkTime.checked) {
-          chkTime.checked = true;
-          timeSelect.disabled = false;
-          timeSelect.classList.remove('opacity-50');
-        }
-        goalsSelect.disabled = !chkGoals.checked;
-        if (chkGoals.checked) goalsSelect.classList.remove('opacity-50');
-        else goalsSelect.classList.add('opacity-50');
-      });
-
-      // 1. ソロモード開始
-      document.getElementById('btn-start-solo').addEventListener('click', () => {
-        resetMatchCompletely();
-        p1.name = document.getElementById('title-player-name').value || 'エースストライカー';
-        isSoloMode = true;
-        isHost = true;
-        isTimeEnabled = true;
-        isTargetGoalsEnabled = false;
-        matchTimeSeconds = 180;
-        initialMatchTime = 180;
-        maxBallsLimit = 3;
-
-        showScreen('IN_GAME');
-        startRoundReset();
-      });
-
-      // 2. ルーム作成
-      document.getElementById('btn-create-lobby').addEventListener('click', () => {
-        resetMatchCompletely();
-        p1.name = document.getElementById('title-player-name').value || 'エースストライカー';
-        isSoloMode = false;
-        isHost = true;
-        roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-        document.getElementById('lobby-code-display').textContent = roomCode;
-        document.getElementById('lobby-host-indicator').classList.remove('hidden');
-        document.getElementById('lobby-host-controls').classList.remove('hidden');
-
-        initNetwork();
-        renderLobbyRoster();
-        showScreen('LOBBY');
-      });
-
-      // 3. ルーム参加
-      document.getElementById('btn-join-lobby').addEventListener('click', () => {
-        const code = document.getElementById('input-join-code').value.trim();
-        if (code) {
-          joinLobbyWithCode(code);
-        }
-      });
-
-      function joinLobbyWithCode(code) {
-        resetMatchCompletely();
-        p1.name = document.getElementById('title-player-name').value || '参加者';
-        isSoloMode = false;
-        isHost = false;
-        roomCode = code;
-        document.getElementById('lobby-code-display').textContent = roomCode;
-        document.getElementById('lobby-host-indicator').classList.add('hidden');
-        document.getElementById('lobby-host-controls').classList.add('hidden');
-
-        initNetwork();
-        // 参加申請
-        setTimeout(() => {
-          sendNet('join_request', { name: p1.name, team: 'red' });
-        }, 500);
-
-        renderLobbyRoster();
-        showScreen('LOBBY');
+      let classBadges = state.badges[cls.id];
+      if (!classBadges || classBadges.length < 3) {
+        classBadges = [null, null, null];
+        state.badges[cls.id] = classBadges;
       }
 
-      // 4. チーム変更
-      document.getElementById('btn-join-blue').addEventListener('click', () => {
-        const lp = players.find(p => p.id === localPlayerId);
-        if (lp) lp.team = 'blue';
-        if (isHost) broadcastLobbyState();
-        else sendNet('join_request', { name: lp.name, team: 'blue' });
-        renderLobbyRoster();
+      container.innerHTML = '';
+      classBadges.forEach((b, idx) => {
+        const slot = document.createElement('div');
+        slot.className = 'p-3 bg-slate-900/90 border border-slate-700 rounded-xl flex items-center gap-3';
+        if (b) {
+          slot.innerHTML = `
+            <div class="w-9 h-9 rounded-xl flex items-center justify-center text-sm" style="background-color: ${b.rarity.color}22; border: 1px solid ${b.rarity.color}; color: ${b.rarity.color}">
+              <i class="fa-solid ${b.type.icon}"></i>
+            </div>
+            <div>
+              <div class="text-[10px] font-extrabold" style="color: ${b.rarity.color}">${b.rarity.name}</div>
+              <div class="text-xs font-black text-white">${b.type.name}</div>
+              <div class="text-[10px] text-slate-400">効果倍率: ×${b.rarity.mult}</div>
+            </div>
+          `;
+        } else {
+          slot.innerHTML = `
+            <div class="w-9 h-9 rounded-xl border border-dashed border-slate-600 flex items-center justify-center text-slate-500 text-xs">
+              ${idx + 1}
+            </div>
+            <div class="text-xs text-slate-500 font-bold">空きスロット (未装着)</div>
+          `;
+        }
+        container.appendChild(slot);
       });
+    }
 
-      document.getElementById('btn-join-red').addEventListener('click', () => {
-        const lp = players.find(p => p.id === localPlayerId);
-        if (lp) lp.team = 'red';
-        if (isHost) broadcastLobbyState();
-        else sendNet('join_request', { name: lp.name, team: 'red' });
-        renderLobbyRoster();
-      });
+    // バッジガチャ実行 (50コインで3枠全リロール)
+    function rollBadgeGacha() {
+      if (state.coins < 50) {
+        alertBox('ガチャには50コイン必要です！');
+        return;
+      }
+      state.coins -= 50;
+      saveCoinData();
+      sound.play('coin');
 
-      // シャッフル
-      document.getElementById('btn-shuffle-teams').addEventListener('click', () => {
-        if (!isHost) return;
-        players.forEach((p, idx) => { p.team = idx % 2 === 0 ? 'blue' : 'red'; });
-        broadcastLobbyState();
-      });
+      const clsId = state.selectedClassId;
+      const newBadges = [];
 
-      // コピー
-      document.getElementById('btn-copy-code').addEventListener('click', () => {
-        navigator.clipboard.writeText(roomCode);
-        showFloatText('コードをコピーしました！', canvas.width / 2, canvas.height / 2, '#10b981', 18);
-      });
+      for (let i = 0; i < 3; i++) {
+        // レア度抽選
+        const roll = Math.random() * 100;
+        let rarity = BADGE_RARITIES[0];
+        if (roll < BADGE_RARITIES[2].weight) rarity = BADGE_RARITIES[2];
+        else if (roll < BADGE_RARITIES[2].weight + BADGE_RARITIES[1].weight) rarity = BADGE_RARITIES[1];
 
-      document.getElementById('btn-copy-url').addEventListener('click', () => {
-        const url = window.location.href.split('#')[0] + '#' + roomCode;
-        navigator.clipboard.writeText(url);
-        showFloatText('招待URLをコピーしました！', canvas.width / 2, canvas.height / 2, '#10b981', 18);
+        // タイプ抽選
+        const type = BADGE_TYPES[Math.floor(Math.random() * BADGE_TYPES.length)];
+        newBadges.push({ type, rarity });
+      }
+
+      state.badges[clsId] = newBadges;
+      saveBadgeData();
+      renderBarracksShop();
+      renderBadges();
+    }
+
+    // --- 試合内ウェーブショップ UI ---
+    function openWaveIntermissionShop(nextWave) {
+      state.gameStatus = 'INTERMISSION';
+      const modal = document.getElementById('modal-wave-shop');
+      const coinText = document.getElementById('waveShopCoinCount');
+      const nextLabel = document.getElementById('nextWaveNumLabel');
+      const grid = document.getElementById('waveShopItemGrid');
+      if (!modal || !coinText || !grid) return;
+
+      modal.classList.remove('hidden');
+      coinText.innerText = state.coins.toLocaleString();
+      nextLabel.innerText = 'WAVE ' + nextWave;
+      grid.innerHTML = '';
+
+      WAVE_SHOP_ITEMS.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'p-3 bg-slate-800/80 border border-slate-700/80 rounded-2xl flex items-center justify-between gap-3';
+        card.innerHTML = `
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg text-white shrink-0" style="background-color: ${item.color}">
+              <i class="fa-solid ${item.icon}"></i>
+            </div>
+            <div>
+              <div class="text-xs font-black text-white">${item.name}</div>
+              <div class="text-[10px] text-slate-400 leading-tight">${item.desc}</div>
+            </div>
+          </div>
+          <button class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl transition shrink-0 active:scale-95">
+            ${item.cost} 🪙
+          </button>
+        `;
+
+        const btn = card.querySelector('button');
+        btn.onclick = () => {
+          if (state.coins >= item.cost) {
+            state.coins -= item.cost;
+            saveCoinData();
+            sound.play('coin');
+            coinText.innerText = state.coins.toLocaleString();
+
+            if (item.type === 'personal') {
+              applyPersonalShopItem(item.id);
+            } else {
+              // 全体アイテムはMQTT送信
+              sendPacket({
+                type: 'GLOBAL_SHOP_PURCHASE',
+                itemId: item.id
+              });
+              applyGlobalShopItem(item.id);
+            }
+          } else {
+            alertBox('コインが足りません！');
+          }
+        };
+
+        grid.appendChild(card);
       });
+    }
+
+    function applyPersonalShopItem(id) {
+      const p = state.players[state.clientId];
+      if (!p) return;
+      if (id === 'personal_heal') {
+        p.hp = Math.min(p.maxHp, p.hp + 50);
+        createFloatingText(p.x, p.y - 20, '+50 HP回復', '#10b981');
+      } else if (id === 'personal_atk') {
+        p.buffs.atkMult = (p.buffs.atkMult || 1) + 0.2;
+        createFloatingText(p.x, p.y - 20, '攻撃力+20%!!', '#ef4444');
+      } else if (id === 'personal_spd') {
+        p.buffs.spdMult = (p.buffs.spdMult || 1) + 0.15;
+        createFloatingText(p.x, p.y - 20, '移動速度+15%!!', '#06b6d4');
+      }
+    }
+
+    function applyGlobalShopItem(id) {
+      if (id === 'global_repair') {
+        state.ovum.hp = Math.min(100, state.ovum.hp + 25);
+        createFloatingText(state.ovum.x, state.ovum.y - 30, '透明帯+25%修復!', '#ec4899');
+      } else if (id === 'global_turret') {
+        state.ovum.turrets++;
+        createFloatingText(state.ovum.x, state.ovum.y - 30, '迎撃タレット増設!', '#8b5cf6');
+      } else if (id === 'global_buff') {
+        Object.values(state.players).forEach(p => {
+          p.buffs.atkMult = (p.buffs.atkMult || 1) + 0.15;
+          p.buffs.spdMult = (p.buffs.spdMult || 1) + 0.10;
+        });
+        createFloatingText(state.ovum.x, state.ovum.y - 30, '全軍士気高揚!!', '#f59e0b');
+      }
+    }
+
+    // --- DOM要素のイベントバインド ---
+    function setupDOMEvents() {
+      // 部屋を立てる
+      document.getElementById('btnCreateRoom').onclick = () => {
+        sound.init();
+        const code = 'SDF' + Math.floor(10 + Math.random() * 90);
+        state.isHost = true;
+        initMQTT(code, () => {
+          document.getElementById('view-title').classList.add('hidden');
+          document.getElementById('view-lobby').classList.remove('hidden');
+          document.getElementById('lobbyRoomCode').innerText = state.roomCode;
+          state.players[state.clientId] = createNetworkPlayer(state.clientId, state.playerName, state.selectedClassId, true);
+          updateLobbyUI();
+        });
+      };
+
+      // 部屋に参加する
+      document.getElementById('btnJoinRoom').onclick = () => {
+        sound.init();
+        const code = document.getElementById('inputRoomCode').value.trim();
+        if (!code) {
+          alertBox('ルームコードを入力してください！');
+          return;
+        }
+        state.isHost = false;
+        initMQTT(code, () => {
+          document.getElementById('view-title').classList.add('hidden');
+          document.getElementById('view-lobby').classList.remove('hidden');
+          document.getElementById('lobbyRoomCode').innerText = state.roomCode;
+          state.players[state.clientId] = createNetworkPlayer(state.clientId, state.playerName, state.selectedClassId, false);
+          updateLobbyUI();
+        });
+      };
+
+      // コード/URL コピー
+      document.getElementById('btnCopyCode').onclick = () => {
+        copyToClipboard(state.roomCode);
+        alertBox('ルームコードをコピーしました！');
+      };
+      document.getElementById('btnCopyUrl').onclick = () => {
+        const url = window.location.origin + window.location.pathname + '#' + state.roomCode;
+        copyToClipboard(url);
+        alertBox('招待URLをコピーしました！');
+      };
 
       // ロビー離脱
-      document.getElementById('btn-leave-lobby').addEventListener('click', () => {
-        resetMatchCompletely();
-        showScreen('TITLE');
+      document.getElementById('btnLeaveLobby').onclick = () => {
+        sendPacket({ type: 'MEMBER_LEAVE', id: state.clientId });
+        location.reload();
+      };
+
+      // ホスト作戦開始
+      document.getElementById('btnStartGame').onclick = () => {
+        if (!state.isHost) return;
+        sound.init();
+        sendPacket({ type: 'START_COUNTDOWN_SIGNAL' });
+        startCountdownAnimation();
+      };
+
+      // 次ウェーブへ進む
+      document.getElementById('btnNextWaveStart').onclick = () => {
+        document.getElementById('modal-wave-shop').classList.add('hidden');
+        state.gameStatus = 'RUNNING';
+        if (state.isHost) {
+          setupWaveProgression(state.wave + 1);
+        }
+      };
+
+      // 兵舎モーダル開閉
+      document.getElementById('btnOpenBarracks').onclick = () => {
+        document.getElementById('modal-barracks').classList.remove('hidden');
+        renderBarracksShop();
+        renderBadges();
+      };
+      document.getElementById('btnCloseBarracks').onclick = () => {
+        document.getElementById('modal-barracks').classList.add('hidden');
+      };
+
+      // バッジガチャボタン
+      document.getElementById('btnRollBadgeGacha').onclick = rollBadgeGacha;
+
+      // 写真設定モーダル開閉
+      document.getElementById('btnOpenPhotoModal').onclick = () => {
+        document.getElementById('modal-photos').classList.remove('hidden');
+      };
+      document.getElementById('btnClosePhotoModal').onclick = () => {
+        document.getElementById('modal-photos').classList.add('hidden');
+      };
+      document.getElementById('btnSavePhotos').onclick = () => {
+        document.getElementById('modal-photos').classList.add('hidden');
+      };
+
+      // オスライオン画像アップロード (精子)
+      document.getElementById('inputMaleLion').onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            const img = new Image();
+            img.src = evt.target.result;
+            state.maleLionImg = img;
+            try { localStorage.setItem('sdf_male_lion_photo', evt.target.result); } catch (err) {}
+            const p = document.getElementById('previewMaleLion');
+            if (p) p.innerHTML = `<img src="${evt.target.result}" class="w-full h-full object-cover">`;
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      // メスライオン画像アップロード (卵子)
+      document.getElementById('inputFemaleLion').onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            const img = new Image();
+            img.src = evt.target.result;
+            state.femaleLionImg = img;
+            try { localStorage.setItem('sdf_female_lion_photo', evt.target.result); } catch (err) {}
+            const p = document.getElementById('previewFemaleLion');
+            if (p) p.innerHTML = `<img src="${evt.target.result}" class="w-full h-full object-cover">`;
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      // プレイヤー名変更
+      document.getElementById('inputPlayerName').onchange = (e) => {
+        state.playerName = e.target.value.trim() || '防衛兵';
+        try { localStorage.setItem('sdf_player_name', state.playerName); } catch (err) {}
+        if (state.players[state.clientId]) {
+          state.players[state.clientId].name = state.playerName;
+        }
+      };
+
+      // 音声ON/OFF
+      document.getElementById('btnToggleAudio').onclick = () => {
+        sound.muted = !sound.muted;
+        const icon = document.querySelector('#btnToggleAudio i');
+        if (icon) {
+          icon.className = sound.muted ? 'fa-solid fa-volume-xmark text-rose-400' : 'fa-solid fa-volume-high';
+        }
+      };
+
+      // タイトルへ帰還
+      document.getElementById('btnReturnToTitle').onclick = () => {
+        location.reload();
+      };
+    }
+
+    // --- 入力・Canvasイベントバインド ---
+    function setupInputEvents() {
+      window.addEventListener('keydown', (e) => {
+        state.keys[e.code] = true;
+      });
+      window.addEventListener('keyup', (e) => {
+        state.keys[e.code] = false;
       });
 
-      // 試合開始
-      document.getElementById('btn-start-game-match').addEventListener('click', () => {
-        if (!isHost) return;
-        isTimeEnabled = chkTime.checked;
-        isTargetGoalsEnabled = chkGoals.checked;
-        matchTimeSeconds = isTimeEnabled ? parseInt(timeSelect.value) : 999999;
-        initialMatchTime = matchTimeSeconds;
-        targetGoals = parseInt(goalsSelect.value);
-        maxBallsLimit = parseInt(document.getElementById('lobby-ball-select').value);
+      const canvas = state.canvas;
 
-        sendNet('match_start');
-        showScreen('IN_GAME');
-        startRoundReset();
+      const updateMouseWorldPos = (clientX, clientY) => {
+        state.mouse.screenX = clientX;
+        state.mouse.screenY = clientY;
+        state.mouse.worldX = clientX - canvas.width / 2 + state.camera.x;
+        state.mouse.worldY = clientY - canvas.height / 2 + state.camera.y;
+      };
+
+      window.addEventListener('mousemove', (e) => {
+        updateMouseWorldPos(e.clientX, e.clientY);
       });
 
-      // タイトルへ戻る
-      document.getElementById('btn-return-to-title').addEventListener('click', () => {
-        resetMatchCompletely();
-        showScreen('TITLE');
+      window.addEventListener('mousedown', (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+        state.mouse.isDown = true;
+        updateMouseWorldPos(e.clientX, e.clientY);
+
+        const localPlayer = state.players[state.clientId];
+        if (localPlayer && state.gameStatus === 'RUNNING') {
+          const cls = CLASS_DEFINITIONS[localPlayer.classId] || CLASS_DEFINITIONS.barehand;
+          if (localPlayer.cooldownTimer <= 0) {
+            executePlayerAttack(localPlayer, cls);
+          }
+        }
       });
 
-      // URLハッシュ自動参加チェック
-      const hash = window.location.hash.replace('#', '').trim();
-      if (hash && hash.length >= 4) {
-        document.getElementById('input-join-code').value = hash;
-        joinLobbyWithCode(hash);
+      window.addEventListener('mouseup', () => {
+        state.mouse.isDown = false;
+      });
+
+      // タッチ操作サポート
+      canvas.addEventListener('touchmove', (e) => {
+        if (e.touches.length > 0) {
+          updateMouseWorldPos(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      }, { passive: true });
+
+      canvas.addEventListener('touchstart', (e) => {
+        state.mouse.isDown = true;
+        if (e.touches.length > 0) {
+          updateMouseWorldPos(e.touches[0].clientX, e.touches[0].clientY);
+          const localPlayer = state.players[state.clientId];
+          if (localPlayer && state.gameStatus === 'RUNNING') {
+            const cls = CLASS_DEFINITIONS[localPlayer.classId] || CLASS_DEFINITIONS.barehand;
+            if (localPlayer.cooldownTimer <= 0) {
+              executePlayerAttack(localPlayer, cls);
+            }
+          }
+        }
+      }, { passive: true });
+
+      canvas.addEventListener('touchend', () => {
+        state.mouse.isDown = false;
+      });
+
+      // リサイズ
+      const resize = () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      };
+      window.addEventListener('resize', resize);
+      resize();
+    }
+
+    // --- 汎用ヘルパー関数 ---
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+      } else {
+        fallbackCopy(text);
       }
     }
 
-    // 試合タイマー
-    setInterval(() => {
-      if (matchState === 'PLAYING') {
-        if (isTimeEnabled && matchTimeSeconds > 0 && matchTimeSeconds < 99999) {
-          if (isSoloMode || isHost) {
-            matchTimeSeconds--;
-          }
-          const mins = String(Math.floor(matchTimeSeconds / 60)).padStart(2, '0');
-          const secs = String(matchTimeSeconds % 60).padStart(2, '0');
-          document.getElementById('match-timer').textContent = `${mins}:${secs}`;
-          if (matchTimeSeconds <= 0 && (isSoloMode || isHost)) {
-            triggerMatchEnd('time');
-          }
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+
+    function alertBox(msg) {
+      const box = document.createElement('div');
+      box.className = 'fixed top-6 left-1/2 -translate-x-1/2 bg-slate-900 border-2 border-pink-500 text-white font-black px-6 py-3 rounded-2xl shadow-2xl z-50 pop-in text-sm flex items-center gap-2';
+      box.innerHTML = `<i class="fa-solid fa-circle-info text-pink-400"></i><span>${msg}</span>`;
+      document.body.appendChild(box);
+      setTimeout(() => {
+        box.style.transition = 'opacity 0.3s';
+        box.style.opacity = '0';
+        setTimeout(() => box.remove(), 300);
+      }, 2200);
+    }
+
+    function updateHUDUI() {
+      const hudOvumText = document.getElementById('hudOvumHpText');
+      const hudOvumBar = document.getElementById('hudOvumHpBar');
+      const hudWave = document.getElementById('hudWaveNum');
+      const hudEnemyCount = document.getElementById('hudEnemyCount');
+      const hudPlayerText = document.getElementById('hudPlayerHpText');
+      const hudPlayerBar = document.getElementById('hudPlayerHpBar');
+      const hudCoin = document.getElementById('hudCoinCount');
+      const titleCoin = document.getElementById('titleCoinCount');
+      const downBanner = document.getElementById('downBanner');
+
+      if (hudOvumText) hudOvumText.innerText = Math.round(state.ovum.hp) + '%';
+      if (hudOvumBar) hudOvumBar.style.width = Math.max(0, state.ovum.hp) + '%';
+      if (hudWave) hudWave.innerText = state.wave;
+      if (hudEnemyCount) hudEnemyCount.innerText = state.waveRemainingEnemies;
+      if (hudCoin) hudCoin.innerText = state.coins.toLocaleString();
+      if (titleCoin) titleCoin.innerText = state.coins.toLocaleString();
+
+      const p = state.players[state.clientId];
+      if (p) {
+        if (hudPlayerText) hudPlayerText.innerText = Math.round(p.hp) + '/' + p.maxHp;
+        if (hudPlayerBar) hudPlayerBar.style.width = Math.max(0, (p.hp / p.maxHp) * 100) + '%';
+        if (downBanner) {
+          if (p.isDown) downBanner.classList.remove('hidden');
+          else downBanner.classList.add('hidden');
         }
       }
-    }, 1000);
+    }
 
-    // オンライン同期インターバル (約20fps = 50ms)
-    setInterval(() => {
-      if (isSoloMode || matchState !== 'PLAYING') return;
+    // --- メインゲームループ (Delta-Time制御) ---
+    let lastFrameTime = performance.now();
 
-      // 1. 各プレイヤー自身の位置同期
-      const lp = players.find(p => p.id === localPlayerId);
-      if (lp) {
-        sendNet('player_input_sync', {
-          playerId: lp.id,
-          x: lp.x, y: lp.y, vx: lp.vx, vy: lp.vy,
-          facingAngle: lp.facingAngle, facingX: lp.facingX, facingY: lp.facingY,
-          actionState: lp.actionState, animLegPhase: lp.animLegPhase,
-          grabbedObjId: lp.grabbedObject ? lp.grabbedObject.id : null
-        });
+    function gameLoop(now) {
+      const dt = Math.min(0.1, (now - lastFrameTime) / 1000);
+      lastFrameTime = now;
+
+      // 更新
+      updateGameLogic(dt);
+
+      // HUD描画更新
+      if (state.gameStatus === 'RUNNING') {
+        updateHUDUI();
       }
 
-      // 2. ホストによるワールド同期（ボール・審判・スコア・備品）
-      if (isHost) {
-        sendNet('host_world_sync', {
-          balls: balls,
-          referee: { x: referee.x, y: referee.y, koTimer: referee.koTimer },
-          score: score,
-          matchTimeSeconds: matchTimeSeconds,
-          goals: {
-            left: { x: leftGoal.x, y: leftGoal.y },
-            right: { x: rightGoal.x, y: rightGoal.y }
-          },
-          obstacles: obstacles.map(o => ({ id: o.id, x: o.x, y: o.y }))
-        });
-      }
-    }, 50);
-
-    /* ==========================================================================
-       10. メインループ
-       ========================================================================== */
-    let lastTime = performance.now();
-    function gameLoop(currentTime) {
-      const dt = Math.min(0.1, (currentTime - lastTime) / 1000);
-      lastTime = currentTime;
-
-      updateBots(dt);
-      updatePhysics(dt);
-
-      renderMain();
-      renderMinimap();
-
-      updateHUD();
-      updateCooldownGauges();
+      // ワールド描画
+      renderWorld();
 
       requestAnimationFrame(gameLoop);
     }
 
+    // --- エントリーポイント (Window Load) ---
     window.onload = function() {
-      resizeGame();
-      setupControls();
-      setupLobbyAndFlow();
+      state.canvas = document.getElementById('gameCanvas');
+      state.ctx = state.canvas.getContext('2d');
+
+      loadSavedData();
+      setupDOMEvents();
+      setupInputEvents();
+
+      // 初期UI反映
+      const nameInput = document.getElementById('inputPlayerName');
+      if (nameInput) nameInput.value = state.playerName;
+      const titleCoins = document.getElementById('titleCoinCount');
+      if (titleCoins) titleCoins.innerText = state.coins.toLocaleString();
+
+      // URLハッシュからの自動参加チェック (#SDF88 等)
+      const hash = window.location.hash.replace('#', '').trim();
+      if (hash && hash.length >= 3) {
+        document.getElementById('inputRoomCode').value = hash.toUpperCase();
+      }
+
+      // ループ開始
       requestAnimationFrame(gameLoop);
     };
   </script>
